@@ -1,0 +1,29 @@
+# Swift Package Manager
+.build/
+.swiftpm/
+Packages/
+*.xcodeproj
+xcuserdata/
+DerivedData/
+
+# Built app bundle
+*.app/
+
+# macOS
+.DS_Store
+.AppleDouble
+.LSOverride
+Icon?
+._*
+
+# Debug symbols (outside .build)
+*.dSYM/
+*.dSYM
+
+*.iconset/
+*.ipa
+*.pkg
+
+# IDE
+*.swp
+*~
