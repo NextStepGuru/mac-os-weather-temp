@@ -24,7 +24,14 @@ echo "Architectures: $(lipo -archs "$APP_BUNDLE/Contents/MacOS/${APP_NAME}")"
 lipo "$APP_BUNDLE/Contents/MacOS/${APP_NAME}" -verify_arch x86_64 arm64
 
 echo "Signing ${APP_NAME}.app..."
-codesign --force --deep --sign - "$APP_BUNDLE"
+CODESIGN_IDENTITY="${CODESIGN_IDENTITY:--}"
+
+if [ "$CODESIGN_IDENTITY" = "-" ]; then
+  codesign --force --deep --sign - "$APP_BUNDLE"
+else
+  codesign --force --options runtime --timestamp \
+    --sign "$CODESIGN_IDENTITY" "$APP_BUNDLE"
+fi
 
 echo ""
 echo "Build complete: $APP_BUNDLE"

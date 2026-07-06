@@ -27,3 +27,8 @@ Icon?
 # IDE
 *.swp
 *~
+
+# Local signing secrets (never commit)
+secrets.local.env
+.local/
+*.p12
