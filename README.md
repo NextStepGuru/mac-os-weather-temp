@@ -3,7 +3,7 @@
 A lightweight macOS menu bar app that shows the current temperature in Celsius and Fahrenheit (e.g. `25°C / 77°F`) based on your location.
 
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
-[![CI](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml/badge.svg)](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml)
+[![CI](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml/badge.svg?branch=main&event=push)](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml)
 [![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)](https://www.apple.com/macos/)
 [![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)](https://swift.org)
 [![Release](https://img.shields.io/github/v/release/NextStepGuru/mac-os-weather-temp?sort=semver)](https://github.com/NextStepGuru/mac-os-weather-temp/releases)
