@@ -42,6 +42,7 @@ struct AppStateLogicTests {
             lastUpdated: nil,
             isFetching: true,
             lastFetchFailed: true,
+            isLocating: false,
             now: fixedNow
         )
         #expect(StatusLineFormatter.format(input) == "Login item failed: error")
@@ -58,6 +59,7 @@ struct AppStateLogicTests {
             lastUpdated: nil,
             isFetching: false,
             lastFetchFailed: false,
+            isLocating: false,
             now: fixedNow
         )
         #expect(StatusLineFormatter.format(input) == "Looking up location…")
@@ -74,6 +76,7 @@ struct AppStateLogicTests {
             lastUpdated: fixedUpdated,
             isFetching: false,
             lastFetchFailed: false,
+            isLocating: false,
             now: fixedNow
         )
         let result = StatusLineFormatter.format(input)!
@@ -93,6 +96,7 @@ struct AppStateLogicTests {
             lastUpdated: nil,
             isFetching: true,
             lastFetchFailed: false,
+            isLocating: false,
             now: fixedNow
         )
         let result = StatusLineFormatter.format(input)!
@@ -111,6 +115,7 @@ struct AppStateLogicTests {
             lastUpdated: fixedUpdated,
             isFetching: false,
             lastFetchFailed: true,
+            isLocating: false,
             now: fixedNow
         )
         let result = StatusLineFormatter.format(input)!
@@ -129,11 +134,29 @@ struct AppStateLogicTests {
             lastUpdated: fixedUpdated,
             isFetching: false,
             lastFetchFailed: true,
+            isLocating: false,
             now: fixedNow
         )
         let result = StatusLineFormatter.format(input)!
         #expect(result.hasPrefix("Location: 45.5152, -122.6784"))
         #expect(result.contains(" · Update failed"))
+    }
+
+    @Test func statusLineLocatingOnly() {
+        let input = StatusLineInput(
+            loginItemError: nil,
+            isGeocoding: false,
+            placeInfo: nil,
+            location: nil,
+            isManualOverride: false,
+            isUsingIPFallback: false,
+            lastUpdated: nil,
+            isFetching: false,
+            lastFetchFailed: false,
+            isLocating: true,
+            now: fixedNow
+        )
+        #expect(StatusLineFormatter.format(input) == "Locating…")
     }
 
     @Test func statusLineRefreshingOnly() {
@@ -147,6 +170,7 @@ struct AppStateLogicTests {
             lastUpdated: nil,
             isFetching: true,
             lastFetchFailed: false,
+            isLocating: false,
             now: fixedNow
         )
         #expect(StatusLineFormatter.format(input) == "Refreshing…")
@@ -163,6 +187,7 @@ struct AppStateLogicTests {
             lastUpdated: nil,
             isFetching: false,
             lastFetchFailed: false,
+            isLocating: false,
             now: fixedNow
         )
         #expect(StatusLineFormatter.format(input) == nil)

@@ -1,6 +1,11 @@
 import CoreLocation
 import Foundation
 
+enum IPFallbackReason: Equatable {
+    case denied
+    case graceTimeout
+}
+
 enum IPFallbackDecision: Equatable {
     case attempt
     case skipManualOverride
@@ -10,11 +15,13 @@ enum IPFallbackDecision: Equatable {
 
 enum IPFallbackPolicy {
     static func shouldAttempt(
+        reason: IPFallbackReason,
         isManualOverride: Bool,
         lastGPSLocation: CLLocation?,
         ipFallbackAttempted: Bool,
         lastLocation: CLLocation?
     ) -> IPFallbackDecision {
+        _ = reason
         if isManualOverride {
             return .skipManualOverride
         }
@@ -38,6 +45,7 @@ struct StatusLineInput {
     var lastUpdated: Date?
     var isFetching: Bool
     var lastFetchFailed: Bool
+    var isLocating: Bool
     var now: Date
 }
 
@@ -98,6 +106,10 @@ enum StatusLineFormatter {
             }
 
             return text
+        }
+
+        if input.isLocating {
+            return "Locating…"
         }
 
         if input.isFetching {

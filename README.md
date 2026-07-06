@@ -26,6 +26,7 @@ A lightweight macOS menu bar app that shows the current temperature in Celsius a
 - **IP fallback** — approximate city-level location when GPS is denied, labeled `Approx (IP)`
 - **Resilient updates** — keeps the last valid temperature when a weather fetch fails
 - **Auto-refresh** — updates every 10 minutes; **Refresh now** in the menu
+- **Automatic updates** — checks GitHub Releases daily and installs signed, notarized builds when a newer version is available; use **Check for Updates…** any time for a manual check
 - **Login autostart** — enabled by default on first launch; toggle via **Open at Login**
 - **Log viewer** — built-in diagnostics via **View Logs**
 
@@ -91,9 +92,20 @@ Click the temperature in the menu bar to open the dropdown:
 | Status line | City, local time, timezone, update status |
 | **Refresh now** | Fetch weather immediately (`⌘R`) |
 | **View Logs** | Open the in-app log viewer |
+| **Check for Updates…** | Manually check GitHub Releases for a newer build |
+| **Update available (vX) — Install** | Appears when an update is ready; installs the release ZIP |
+| **Automatic Updates** | Toggle daily background update checks and silent installs |
 | **Settings…** | Set a manual location override (`⌘,`) |
 | **Open at Login** | Toggle launch-at-login |
 | **Quit** | Exit the app (`⌘Q`) |
+
+## Automatic updates
+
+When WeatherBar is installed as `WeatherBar.app` in a writable location (for example `/Applications`), it checks [GitHub Releases](https://github.com/NextStepGuru/mac-os-weather-temp/releases) once per day for a newer version. If one is available, it downloads the notarized release ZIP, replaces the installed app, and relaunches.
+
+- **Automatic Updates** is enabled by default. Turn it off from the menu bar dropdown if you prefer to install updates manually.
+- Use **Check for Updates…** any time to check immediately and choose whether to install.
+- If WeatherBar is running from a dev build or another non-writable location, it will show **Update available** in the menu instead of installing silently.
 
 ## How location works
 
@@ -103,20 +115,37 @@ WeatherBar resolves your location using a priority chain:
 flowchart TD
     launch[App launch] --> manual{Manual override saved?}
     manual -->|Yes| useManual[Use manual location]
-    manual -->|No| startGPS[Start CoreLocation]
-    startGPS --> gpsOK{GPS authorized and fix?}
-    gpsOK -->|Yes| useGPS[Use GPS location]
-    gpsOK -->|"Denied / restricted / error"| ipFallback[IP lookup via ipapi.co]
-    ipFallback -->|Success| useIP["Approximate IP location"]
-    ipFallback -->|Failure| showError["Show error indicator"]
-    useIP -.->|"GPS later available"| useGPS
+    manual -->|No| reqAuth[Request location authorization]
+    reqAuth --> auth{Authorization}
+    auth -->|Authorized| startGPS[startUpdatingLocation]
+    auth -->|Denied / restricted| ip[IP fallback]
+    auth -->|Not determined| wait[Show Locating… wait for prompt]
+    startGPS --> grace{First GPS fix within 12s?}
+    grace -->|Yes| useGPS[Use GPS location]
+    grace -->|Timeout| ip
+    ip --> useIP["Approximate IP location"]
+    useIP -.->|GPS fix arrives| useGPS
 ```
 
-**Priority:** Manual override > GPS (CoreLocation) > IP fallback
+**Priority:** Manual override > GPS (CoreLocation) > IP fallback (timed)
 
-- **GPS** — most accurate; used when Location Services are allowed.
+- **GPS** — most accurate; used when Location Services are allowed. The app waits up to **12 seconds** for a first fix before falling back to IP.
 - **Manual** — set any place in **Settings…**; GPS updates are ignored while active.
-- **IP fallback** — city-level approximation via [ipapi.co](https://ipapi.co/); only used when GPS is unavailable. Marked `Approx (IP)` in the dropdown.
+- **IP fallback** — city-level approximation via [ipapi.co](https://ipapi.co/); only used when GPS is denied or no fix arrives within the grace period. Marked `Approx (IP)` in the dropdown. Any later GPS fix replaces the IP estimate.
+
+### Resetting Location Services permission
+
+If WeatherBar shows the wrong city or stays on `Approx (IP)` after granting permission, reset the app's location grant and reinstall:
+
+```bash
+# Quit WeatherBar first
+tccutil reset Location com.weatherbar.app
+./scripts/build_app.sh
+cp -R WeatherBar.app /Applications/
+open /Applications/WeatherBar.app
+```
+
+On relaunch, approve the Location Services prompt. If no prompt appears (common for menu bar apps), enable WeatherBar under **System Settings → Privacy & Security → Location Services**.
 
 ## Weather data and privacy
 
@@ -124,7 +153,7 @@ flowchart TD
 |------|--------|-----------|
 | Temperature | [NWS API](https://www.weather.gov/documentation/services-web-api) (primary), [Open-Meteo](https://open-meteo.com/) (fallback) | Every refresh |
 | City / timezone | Apple reverse geocoding (CoreLocation) | GPS or manual location |
-| Approximate location | [ipapi.co](https://ipapi.co/) | Only when GPS is denied or fails |
+| Approximate location | [ipapi.co](https://ipapi.co/) | Only when GPS is denied or times out without a fix |
 
 **Privacy notes:**
 
@@ -149,6 +178,7 @@ Sources/WeatherBar/
   AppLogger.swift
   LogViewerWindowController.swift
   LoginItemManager.swift
+  UpdateService.swift
 Resources/
   Info.plist
   AppIcon.icns
