@@ -223,10 +223,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             return
         }
 
-        let locationChanged = lastLocation.map {
-            abs($0.coordinate.latitude - location.coordinate.latitude) > coordinateTolerance
-                || abs($0.coordinate.longitude - location.coordinate.longitude) > coordinateTolerance
-        } ?? true
+        let locationChanged = LocationChangeDetector.hasChanged(
+            from: lastLocation,
+            to: location,
+            tolerance: coordinateTolerance
+        )
 
         AppLogger.shared.log(
             "Location update: \(location.coordinate.latitude), \(location.coordinate.longitude) (changed: \(locationChanged))"
@@ -279,14 +280,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func attemptIPFallback(deniedMessage: String) {
-        guard !isManualOverride else { return }
-        guard lastGPSLocation == nil else { return }
-        guard !ipFallbackAttempted else {
-            if lastLocation == nil {
+        switch IPFallbackPolicy.shouldAttempt(
+            isManualOverride: isManualOverride,
+            lastGPSLocation: lastGPSLocation,
+            ipFallbackAttempted: ipFallbackAttempted,
+            lastLocation: lastLocation
+        ) {
+        case .skipManualOverride, .skipHasGPS:
+            return
+        case .alreadyAttempted(let showDenied):
+            if showDenied {
                 statusItem.button?.title = "!°"
                 statusMenuItem?.title = deniedMessage
             }
             return
+        case .attempt:
+            break
         }
 
         ipFallbackAttempted = true
@@ -348,8 +357,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.isFetching = false
                 self.lastFetchFailed = true
                 AppLogger.shared.log("Weather fetch failed: \(error.localizedDescription)", level: .error)
-                if self.lastTemperatureText == nil {
-                    self.statusItem.button?.title = "!°"
+                if let title = WeatherDisplayPolicy.menuBarTitleOnFetchFailure(lastTemperatureText: self.lastTemperatureText) {
+                    self.statusItem.button?.title = title
                 }
                 self.updateStatusMenu()
             }
@@ -359,64 +368,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func updateStatusMenu() {
         guard let statusMenuItem else { return }
 
-        if let loginItemError {
-            statusMenuItem.title = loginItemError
-            return
-        }
+        let input = StatusLineInput(
+            loginItemError: loginItemError,
+            isGeocoding: isGeocoding,
+            placeInfo: lastPlaceInfo,
+            location: lastPlaceInfo == nil ? lastLocation : nil,
+            isManualOverride: isManualOverride,
+            isUsingIPFallback: isUsingIPFallback,
+            lastUpdated: lastUpdated,
+            isFetching: isFetching,
+            lastFetchFailed: lastFetchFailed,
+            now: Date()
+        )
 
-        if isGeocoding {
-            statusMenuItem.title = "Looking up location…"
-            return
-        }
-
-        if let placeInfo = lastPlaceInfo {
-            let now = Date()
-            let localTime = placeInfo.formatTime(now)
-            let tzAbbr = placeInfo.timeZoneAbbreviation(for: now)
-            var text = "\(placeInfo.displayName) · \(localTime) \(tzAbbr)"
-
-            if isManualOverride {
-                text += " · Manual"
-            }
-
-            if isUsingIPFallback {
-                text += " · Approx (IP)"
-            }
-
-            if let lastUpdated {
-                let updatedTime = placeInfo.formatTime(lastUpdated)
-                text += " · Updated \(updatedTime)"
-            } else if isFetching {
-                text += " · Refreshing…"
-            }
-
-            if lastFetchFailed {
-                text += " · Update failed"
-            }
-
-            statusMenuItem.title = text
-        } else if let location = lastLocation {
-            let lat = String(format: "%.4f", location.coordinate.latitude)
-            let lon = String(format: "%.4f", location.coordinate.longitude)
-            var text = "Location: \(lat), \(lon)"
-
-            if let lastUpdated {
-                let formatter = DateFormatter()
-                formatter.timeStyle = .short
-                formatter.dateStyle = .none
-                formatter.timeZone = .current
-                text += " · Updated \(formatter.string(from: lastUpdated))"
-            } else if isFetching {
-                text += " · Refreshing…"
-            }
-
-            if lastFetchFailed {
-                text += " · Update failed"
-            }
-
-            statusMenuItem.title = text
-        } else if isFetching {
-            statusMenuItem.title = "Refreshing…"
+        if let title = StatusLineFormatter.format(input) {
+            statusMenuItem.title = title
         }
     }
 }

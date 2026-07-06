@@ -1,16 +1,39 @@
 name: CI
 
 on:
-  push:
-    branches: [main]
   pull_request:
     branches: [main]
 
 jobs:
-  build:
-    runs-on: macos-14
+  test:
+    runs-on: macos-15
+    strategy:
+      matrix:
+        arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v4
+
+      - name: Select Xcode 16 (Swift 6)
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
+
+      - name: Show Swift version
+        run: swift --version
+
+      - name: Run tests (${{ matrix.arch }})
+        run: |
+          if [ "${{ matrix.arch }}" = "x86_64" ]; then
+            arch -x86_64 swift test --arch x86_64
+          else
+            swift test --arch arm64
+          fi
+
+  build:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Select Xcode 16 (Swift 6)
+        run: sudo xcode-select -s /Applications/Xcode.app/Contents/Developer
 
       - name: Show Swift version
         run: swift --version
