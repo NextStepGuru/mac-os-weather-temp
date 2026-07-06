@@ -3,13 +3,12 @@ import Foundation
 
 struct IPLocationService {
     private static let userAgent = "WeatherBar/1.0 (com.weatherbar.app)"
-    private static let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 30
-        config.waitsForConnectivity = true
-        return URLSession(configuration: config)
-    }()
+
+    private let session: URLSession
+
+    init(session: URLSession = .configured) {
+        self.session = session
+    }
 
     private struct IPGeoResponse: Decodable {
         let latitude: Double?
@@ -63,7 +62,7 @@ struct IPLocationService {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await Self.session.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)

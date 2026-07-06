@@ -13,18 +13,19 @@ enum SettingsStore {
         static let manualTimeZoneIdentifier = "manualTimeZoneIdentifier"
     }
 
+    static var defaults: UserDefaults = .standard
+
     static var manualOverrideEnabled: Bool {
-        get { UserDefaults.standard.bool(forKey: Keys.manualLocationEnabled) }
-        set { UserDefaults.standard.set(newValue, forKey: Keys.manualLocationEnabled) }
+        get { defaults.bool(forKey: Keys.manualLocationEnabled) }
+        set { defaults.set(newValue, forKey: Keys.manualLocationEnabled) }
     }
 
     static var manualLocationQuery: String {
-        get { UserDefaults.standard.string(forKey: Keys.manualLocationQuery) ?? "" }
-        set { UserDefaults.standard.set(newValue, forKey: Keys.manualLocationQuery) }
+        get { defaults.string(forKey: Keys.manualLocationQuery) ?? "" }
+        set { defaults.set(newValue, forKey: Keys.manualLocationQuery) }
     }
 
     static func saveManualLocation(query: String, location: CLLocation, place: PlaceInfo) {
-        let defaults = UserDefaults.standard
         manualOverrideEnabled = true
         manualLocationQuery = query
         defaults.set(location.coordinate.latitude, forKey: Keys.manualLatitude)
@@ -35,7 +36,6 @@ enum SettingsStore {
     }
 
     static func clearManualLocation() {
-        let defaults = UserDefaults.standard
         manualOverrideEnabled = false
         defaults.removeObject(forKey: Keys.manualLatitude)
         defaults.removeObject(forKey: Keys.manualLongitude)
@@ -47,7 +47,6 @@ enum SettingsStore {
     static func loadManualLocation() -> (CLLocation, PlaceInfo)? {
         guard manualOverrideEnabled else { return nil }
 
-        let defaults = UserDefaults.standard
         let latitude = defaults.double(forKey: Keys.manualLatitude)
         let longitude = defaults.double(forKey: Keys.manualLongitude)
         let city = defaults.string(forKey: Keys.manualCity)

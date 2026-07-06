@@ -2,13 +2,14 @@ import Foundation
 
 struct WeatherService {
     private static let userAgent = "WeatherBar/1.0 (com.weatherbar.app)"
-    private static let session: URLSession = {
-        let config = URLSessionConfiguration.default
-        config.timeoutIntervalForRequest = 20
-        config.timeoutIntervalForResource = 30
-        config.waitsForConnectivity = true
-        return URLSession(configuration: config)
-    }()
+
+    private let session: URLSession
+    private let retryDelayNanoseconds: UInt64
+
+    init(session: URLSession = .configured, retryDelayNanoseconds: UInt64 = 1_000_000_000) {
+        self.session = session
+        self.retryDelayNanoseconds = retryDelayNanoseconds
+    }
 
     private struct NWSPointsResponse: Decodable {
         struct Properties: Decodable {
@@ -74,9 +75,9 @@ struct WeatherService {
                 return try await provider(latitude, longitude)
             } catch {
                 lastError = error
-                if attempt < maxAttempts, shouldRetry(error) {
+                if attempt < maxAttempts, Self.shouldRetry(error) {
                     AppLogger.shared.log("Retrying weather fetch (attempt \(attempt + 1))", level: .debug)
-                    try await Task.sleep(nanoseconds: 1_000_000_000)
+                    try await Task.sleep(nanoseconds: retryDelayNanoseconds)
                     continue
                 }
                 throw error
@@ -86,7 +87,7 @@ struct WeatherService {
         throw lastError ?? URLError(.unknown)
     }
 
-    private func shouldRetry(_ error: Error) -> Bool {
+    static func shouldRetry(_ error: Error) -> Bool {
         guard let urlError = error as? URLError else { return false }
         switch urlError.code {
         case .timedOut, .networkConnectionLost, .notConnectedToInternet, .cannotConnectToHost:
@@ -155,7 +156,7 @@ struct WeatherService {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await Self.session.data(for: request)
+        let (data, response) = try await session.data(for: request)
 
         guard let httpResponse = response as? HTTPURLResponse else {
             throw URLError(.badServerResponse)
@@ -174,5 +175,15 @@ struct WeatherService {
         let cRounded = Int(celsius.rounded())
         let fRounded = Int(fahrenheit.rounded())
         return "\(cRounded)°C / \(fRounded)°F"
+    }
+}
+
+extension URLSession {
+    static var configured: URLSession {
+        let config = URLSessionConfiguration.default
+        config.timeoutIntervalForRequest = 20
+        config.timeoutIntervalForResource = 30
+        config.waitsForConnectivity = true
+        return URLSession(configuration: config)
     }
 }

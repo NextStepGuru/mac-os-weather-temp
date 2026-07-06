@@ -13,14 +13,19 @@ final class AppLogger: @unchecked Sendable {
 
     private let osLogger = Logger(subsystem: "com.weatherbar.app", category: "general")
     private let logFileURL: URL
-    private let maxFileSize = 1_000_000
+    private let maxFileSize: Int
     private let queue = DispatchQueue(label: "com.weatherbar.app.logger")
 
-    private init() {
+    private convenience init() {
         let appSupport = FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask).first!
         let logDir = appSupport.appendingPathComponent("WeatherBar/logs", isDirectory: true)
-        try? FileManager.default.createDirectory(at: logDir, withIntermediateDirectories: true)
-        logFileURL = logDir.appendingPathComponent("weatherbar.log")
+        self.init(directory: logDir)
+    }
+
+    init(directory: URL, maxFileSize: Int = 1_000_000) {
+        try? FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
+        self.logFileURL = directory.appendingPathComponent("weatherbar.log")
+        self.maxFileSize = maxFileSize
     }
 
     var fileURL: URL { logFileURL }

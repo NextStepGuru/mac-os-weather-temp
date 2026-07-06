@@ -24,14 +24,29 @@ struct PlaceInfo: Equatable {
 }
 
 struct GeocodingService: Sendable {
-    static func placeInfo(from placemark: CLPlacemark) -> PlaceInfo {
-        let city = placemark.locality
-            ?? placemark.subAdministrativeArea
-            ?? placemark.name
+    static func resolvePlace(
+        locality: String?,
+        subAdministrativeArea: String?,
+        name: String?,
+        administrativeArea: String?,
+        timeZone: TimeZone?
+    ) -> PlaceInfo {
+        let city = locality
+            ?? subAdministrativeArea
+            ?? name
             ?? "Unknown"
-        let state = placemark.administrativeArea ?? "Unknown"
-        let timeZone = placemark.timeZone ?? .current
-        return PlaceInfo(city: city, state: state, timeZone: timeZone)
+        let state = administrativeArea ?? "Unknown"
+        return PlaceInfo(city: city, state: state, timeZone: timeZone ?? .current)
+    }
+
+    static func placeInfo(from placemark: CLPlacemark) -> PlaceInfo {
+        resolvePlace(
+            locality: placemark.locality,
+            subAdministrativeArea: placemark.subAdministrativeArea,
+            name: placemark.name,
+            administrativeArea: placemark.administrativeArea,
+            timeZone: placemark.timeZone
+        )
     }
 
     func reverseGeocode(location: CLLocation) async throws -> PlaceInfo {

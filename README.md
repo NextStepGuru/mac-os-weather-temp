@@ -1,23 +1,61 @@
 # WeatherBar
 
-A lightweight macOS menu bar app that shows the current temperature in Celsius and Fahrenheit (e.g. `25°C / 77°F`) based on your GPS location.
+A lightweight macOS menu bar app that shows the current temperature in Celsius and Fahrenheit (e.g. `25°C / 77°F`) based on your location.
+
+[![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
+[![CI](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml/badge.svg)](https://github.com/NextStepGuru/mac-os-weather-temp/actions/workflows/ci.yml)
+[![Platform](https://img.shields.io/badge/platform-macOS%2013%2B-lightgrey)](https://www.apple.com/macos/)
+[![Swift](https://img.shields.io/badge/Swift-6.0-orange.svg)](https://swift.org)
+[![Release](https://img.shields.io/github/v/release/NextStepGuru/mac-os-weather-temp?sort=semver)](https://github.com/NextStepGuru/mac-os-weather-temp/releases)
+[![Arch](https://img.shields.io/badge/arch-universal%20(arm64%20%2B%20x86__64)-blue)](https://developer.apple.com/documentation/apple-silicon)
+[![PRs Welcome](https://img.shields.io/badge/PRs-welcome-brightgreen.svg)](CONTRIBUTING.md)
+
+<p align="center">
+  <img src="Resources/AppIcon-1024.png" alt="WeatherBar icon" width="128" height="128">
+</p>
+
+<!-- Add a menu bar screenshot: save as docs/screenshot.png -->
+<!-- <p align="center"><img src="docs/screenshot.png" alt="WeatherBar menu bar screenshot" width="600"></p> -->
+
+## Features
+
+- **Menu bar temperature** — dual Celsius/Fahrenheit display (e.g. `25°C / 77°F`)
+- **Location dropdown** — city/state, local time with timezone, and last-updated timestamp
+- **GPS tracking** — CoreLocation with ~3 km distance filter; re-fetches when you move
+- **Manual location** — override with any place name via **Settings…** (persisted across launches)
+- **IP fallback** — approximate city-level location when GPS is denied, labeled `Approx (IP)`
+- **Resilient updates** — keeps the last valid temperature when a weather fetch fails
+- **Auto-refresh** — updates every 10 minutes; **Refresh now** in the menu
+- **Login autostart** — enabled by default on first launch; toggle via **Open at Login**
+- **Log viewer** — built-in diagnostics via **View Logs**
 
 ## Requirements
 
-- macOS 13+
-- Swift 6+ (Command Line Tools or Xcode)
-- Internet access for weather data
+- macOS 13 (Ventura) or later on **Apple Silicon or Intel** (universal binary: native `arm64` and `x86_64`)
+- Swift 6+ (Xcode or Command Line Tools)
+- Internet access for weather and geocoding data
 
-## Build
+## Install
+
+### Build from source
 
 ```bash
+git clone https://github.com/NextStepGuru/mac-os-weather-temp.git
+cd mac-os-weather-temp
 chmod +x scripts/build_app.sh
 ./scripts/build_app.sh
 ```
 
-This compiles a release binary, assembles `WeatherBar.app`, and ad-hoc signs it.
+This compiles a **universal release binary** (`arm64` + `x86_64`), assembles `WeatherBar.app`, and ad-hoc signs it.
 
-## Install (recommended)
+Verify architectures after building:
+
+```bash
+lipo -archs WeatherBar.app/Contents/MacOS/WeatherBar
+# x86_64 arm64
+```
+
+### Recommended install location
 
 For reliable login autostart, copy the app to `/Applications`:
 
@@ -26,7 +64,7 @@ cp -R WeatherBar.app /Applications/
 open /Applications/WeatherBar.app
 ```
 
-## Run
+### Run without installing
 
 ```bash
 open ./WeatherBar.app
@@ -36,19 +74,56 @@ On first launch, macOS will prompt for **Location Services** permission. Allow a
 
 If Gatekeeper blocks the app (ad-hoc signed), right-click the app → **Open**, or allow it in **System Settings → Privacy & Security**.
 
-## Behavior
+## Usage
 
-- **Menu bar**: displays current temperature as `25°C / 77°F`
-- **Dropdown**: shows city/state, local time with timezone (e.g. `Gold Beach, OR · 8:53 AM PST · Updated 8:53 AM`)
-- **Location tracking**: uses CoreLocation with ~3 km distance filter; re-fetches when you move
-- **Auto-refresh**: updates every 10 minutes
-- **Login autostart**: enabled by default on first launch; toggle via **Open at Login** in the menu
+Click the temperature in the menu bar to open the dropdown:
 
-## Weather data
+| Menu item | Description |
+|-----------|-------------|
+| Status line | City, local time, timezone, update status |
+| **Refresh now** | Fetch weather immediately (`⌘R`) |
+| **View Logs** | Open the in-app log viewer |
+| **Settings…** | Set a manual location override (`⌘,`) |
+| **Open at Login** | Toggle launch-at-login |
+| **Quit** | Exit the app (`⌘Q`) |
 
-Temperatures are fetched from [Open-Meteo](https://open-meteo.com/) (free, no API key required).
+## How location works
 
-City, state, and timezone come from Apple's reverse geocoding (CoreLocation).
+WeatherBar resolves your location using a priority chain:
+
+```mermaid
+flowchart TD
+    launch[App launch] --> manual{Manual override saved?}
+    manual -->|Yes| useManual[Use manual location]
+    manual -->|No| startGPS[Start CoreLocation]
+    startGPS --> gpsOK{GPS authorized and fix?}
+    gpsOK -->|Yes| useGPS[Use GPS location]
+    gpsOK -->|"Denied / restricted / error"| ipFallback[IP lookup via ipapi.co]
+    ipFallback -->|Success| useIP["Approximate IP location"]
+    ipFallback -->|Failure| showError["Show error indicator"]
+    useIP -.->|"GPS later available"| useGPS
+```
+
+**Priority:** Manual override > GPS (CoreLocation) > IP fallback
+
+- **GPS** — most accurate; used when Location Services are allowed.
+- **Manual** — set any place in **Settings…**; GPS updates are ignored while active.
+- **IP fallback** — city-level approximation via [ipapi.co](https://ipapi.co/); only used when GPS is unavailable. Marked `Approx (IP)` in the dropdown.
+
+## Weather data and privacy
+
+| Data | Source | When used |
+|------|--------|-----------|
+| Temperature | [NWS API](https://www.weather.gov/documentation/services-web-api) (primary), [Open-Meteo](https://open-meteo.com/) (fallback) | Every refresh |
+| City / timezone | Apple reverse geocoding (CoreLocation) | GPS or manual location |
+| Approximate location | [ipapi.co](https://ipapi.co/) | Only when GPS is denied or fails |
+
+**Privacy notes:**
+
+- Coordinates are sent only to the weather and geocoding services listed above.
+- No accounts, analytics, or tracking.
+- Manual location settings are stored locally in `UserDefaults`.
+- IP lookup is attempted once per session when GPS is unavailable.
 
 ## Project structure
 
@@ -60,7 +135,39 @@ Sources/WeatherBar/
   LocationProvider.swift
   WeatherService.swift
   GeocodingService.swift
+  IPLocationService.swift
+  SettingsStore.swift
+  SettingsWindowController.swift
+  AppLogger.swift
+  LogViewerWindowController.swift
   LoginItemManager.swift
-Resources/Info.plist
-scripts/build_app.sh
+Resources/
+  Info.plist
+  AppIcon.icns
+scripts/
+  build_app.sh
+  build_icon.sh
 ```
+
+## Contributing
+
+Contributions are welcome! See [CONTRIBUTING.md](CONTRIBUTING.md) for build instructions, code style, and PR guidelines.
+
+Please read our [Code of Conduct](CODE_OF_CONDUCT.md) before participating.
+
+## Security
+
+To report a security vulnerability, see [SECURITY.md](SECURITY.md).
+
+## License
+
+This project is licensed under the [MIT License](LICENSE).
+
+Copyright (c) 2026 NextStepGuru
+
+## Acknowledgements
+
+- [Open-Meteo](https://open-meteo.com/) — free weather API
+- [National Weather Service](https://www.weather.gov/) — US weather data API
+- [ipapi.co](https://ipapi.co/) — IP geolocation fallback
+- Apple CoreLocation — GPS and reverse geocoding
