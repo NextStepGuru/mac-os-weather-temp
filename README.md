@@ -37,6 +37,16 @@ A lightweight macOS menu bar app that shows the current temperature in Celsius a
 
 ## Install
 
+### Download a release
+
+Official builds from [GitHub Releases](https://github.com/NextStepGuru/mac-os-weather-temp/releases) are signed with a Developer ID certificate and notarized by Apple. Download the ZIP, unzip, and move `WeatherBar.app` to `/Applications` — it should open without a Gatekeeper warning.
+
+```bash
+open /Applications/WeatherBar.app
+```
+
+On first launch, macOS will prompt for **Location Services** permission. Allow access so the app can determine your coordinates.
+
 ### Build from source
 
 ```bash
@@ -70,9 +80,7 @@ open /Applications/WeatherBar.app
 open ./WeatherBar.app
 ```
 
-On first launch, macOS will prompt for **Location Services** permission. Allow access so the app can determine your coordinates.
-
-If Gatekeeper blocks the app (ad-hoc signed), right-click the app → **Open**, or allow it in **System Settings → Privacy & Security**.
+If Gatekeeper blocks a locally built app (ad-hoc signed), right-click the app → **Open**, or allow it in **System Settings → Privacy & Security**.
 
 ## Usage
 

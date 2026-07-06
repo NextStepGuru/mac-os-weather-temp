@@ -15,7 +15,7 @@ jobs:
   release:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
         with:
           fetch-depth: 0
 
@@ -47,14 +47,48 @@ jobs:
           plutil -replace CFBundleShortVersionString -string "${VERSION#v}" Resources/Info.plist
           plutil -replace CFBundleVersion -string "${GITHUB_RUN_NUMBER}" Resources/Info.plist
 
+      - name: Import Developer ID certificate
+        env:
+          CERT_P12_BASE64: ${{ secrets.DEVELOPER_ID_APP_CERT_P12_BASE64 }}
+          CERT_PASSWORD: ${{ secrets.DEVELOPER_ID_APP_CERT_PASSWORD }}
+          KEYCHAIN_PASSWORD: ${{ secrets.KEYCHAIN_PASSWORD }}
+        run: |
+          CERT_PATH="$RUNNER_TEMP/cert.p12"
+          KEYCHAIN_PATH="$RUNNER_TEMP/app-signing.keychain-db"
+          echo "$CERT_P12_BASE64" | base64 --decode > "$CERT_PATH"
+          security create-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security set-keychain-settings -lut 21600 "$KEYCHAIN_PATH"
+          security unlock-keychain -p "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security import "$CERT_PATH" -P "$CERT_PASSWORD" -A -t cert -f pkcs12 \
+            -k "$KEYCHAIN_PATH" -T /usr/bin/codesign
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "$KEYCHAIN_PASSWORD" "$KEYCHAIN_PATH"
+          security list-keychain -d user -s "$KEYCHAIN_PATH" login.keychain-db
+
       - name: Build universal app
+        env:
+          CODESIGN_IDENTITY: ${{ secrets.CODESIGN_IDENTITY }}
         run: ./scripts/build_app.sh
 
-      - name: Package app
+      - name: Package and notarize
         env:
           VERSION: ${{ steps.version.outputs.version }}
+          APPLE_ID: ${{ secrets.APPLE_ID }}
+          APPLE_APP_PASSWORD: ${{ secrets.APPLE_APP_PASSWORD }}
+          APPLE_TEAM_ID: ${{ secrets.APPLE_TEAM_ID }}
         run: |
           ditto -c -k --sequesterRsrc --keepParent WeatherBar.app "WeatherBar-${VERSION}.zip"
+          xcrun notarytool submit "WeatherBar-${VERSION}.zip" \
+            --apple-id "$APPLE_ID" --team-id "$APPLE_TEAM_ID" \
+            --password "$APPLE_APP_PASSWORD" --wait
+          xcrun stapler staple WeatherBar.app
+          ditto -c -k --sequesterRsrc --keepParent WeatherBar.app "WeatherBar-${VERSION}.zip"
+
+      - name: Verify signature and notarization
+        run: |
+          codesign --verify --deep --strict --verbose=2 WeatherBar.app
+          spctl -a -t exec -vvv WeatherBar.app
+          xcrun stapler validate WeatherBar.app
 
       - name: Create GitHub Release
         env:
