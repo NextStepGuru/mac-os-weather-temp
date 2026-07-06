@@ -81,4 +81,18 @@ enum Fixtures {
         "region": "Nebraska"
     }
     """
+
+    static let githubLatestRelease = """
+    {
+        "tag_name": "v1.2.0",
+        "assets": [
+            {
+                "browser_download_url": "https://github.com/NextStepGuru/mac-os-weather-temp/releases/download/v1.2.0/WeatherBar-v1.2.0.zip"
+            },
+            {
+                "browser_download_url": "https://github.com/NextStepGuru/mac-os-weather-temp/releases/download/v1.2.0/notes.txt"
+            }
+        ]
+    }
+    """
 }
