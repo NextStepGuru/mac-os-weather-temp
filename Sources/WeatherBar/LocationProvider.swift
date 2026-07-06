@@ -16,6 +16,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     func start() {
+        AppLogger.shared.log("Starting location provider")
         manager.requestWhenInUseAuthorization()
         manager.startUpdatingLocation()
     }
@@ -25,7 +26,10 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManagerDidChangeAuthorization(_ manager: CLLocationManager) {
-        switch manager.authorizationStatus {
+        let status = manager.authorizationStatus
+        AppLogger.shared.log("Location authorization changed: \(status.rawValue)")
+
+        switch status {
         case .authorizedAlways, .authorizedWhenInUse:
             manager.startUpdatingLocation()
         case .denied, .restricted:
@@ -43,6 +47,7 @@ final class LocationProvider: NSObject, CLLocationManagerDelegate {
     }
 
     func locationManager(_ manager: CLLocationManager, didFailWithError error: Error) {
+        AppLogger.shared.log("Location manager error: \(error.localizedDescription)", level: .error)
         onError?(error)
     }
 }

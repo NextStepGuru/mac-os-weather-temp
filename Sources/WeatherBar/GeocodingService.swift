@@ -24,6 +24,16 @@ struct PlaceInfo: Equatable {
 }
 
 struct GeocodingService: Sendable {
+    static func placeInfo(from placemark: CLPlacemark) -> PlaceInfo {
+        let city = placemark.locality
+            ?? placemark.subAdministrativeArea
+            ?? placemark.name
+            ?? "Unknown"
+        let state = placemark.administrativeArea ?? "Unknown"
+        let timeZone = placemark.timeZone ?? .current
+        return PlaceInfo(city: city, state: state, timeZone: timeZone)
+    }
+
     func reverseGeocode(location: CLLocation) async throws -> PlaceInfo {
         let geocoder = CLGeocoder()
         return try await withCheckedThrowingContinuation { continuation in
@@ -38,14 +48,31 @@ struct GeocodingService: Sendable {
                     return
                 }
 
-                let city = placemark.locality
-                    ?? placemark.subAdministrativeArea
-                    ?? placemark.name
-                    ?? "Unknown"
-                let state = placemark.administrativeArea ?? "Unknown"
-                let timeZone = placemark.timeZone ?? .current
+                continuation.resume(returning: Self.placeInfo(from: placemark))
+            }
+        }
+    }
 
-                continuation.resume(returning: PlaceInfo(city: city, state: state, timeZone: timeZone))
+    func forwardGeocode(address: String) async throws -> (location: CLLocation, place: PlaceInfo) {
+        let trimmed = address.trimmingCharacters(in: .whitespacesAndNewlines)
+        guard !trimmed.isEmpty else {
+            throw GeocodingError.invalidAddress
+        }
+
+        let geocoder = CLGeocoder()
+        return try await withCheckedThrowingContinuation { continuation in
+            geocoder.geocodeAddressString(trimmed) { placemarks, error in
+                if let error {
+                    continuation.resume(throwing: error)
+                    return
+                }
+
+                guard let placemark = placemarks?.first, let location = placemark.location else {
+                    continuation.resume(throwing: GeocodingError.noResults)
+                    return
+                }
+
+                continuation.resume(returning: (location, Self.placeInfo(from: placemark)))
             }
         }
     }
@@ -53,11 +80,14 @@ struct GeocodingService: Sendable {
 
 enum GeocodingError: LocalizedError {
     case noResults
+    case invalidAddress
 
     var errorDescription: String? {
         switch self {
         case .noResults:
             return "No location results found"
+        case .invalidAddress:
+            return "Please enter a place name or address"
         }
     }
 }
