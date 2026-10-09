@@ -49,6 +49,7 @@ struct StatusLineInput {
     var location: CLLocation?
     var isManualOverride: Bool
     var isUsingIPFallback: Bool
+    var isUsingLastKnownGPS = false
     var lastUpdated: Date?
     var isFetching: Bool
     var lastFetchFailed: Bool
@@ -77,6 +78,10 @@ enum StatusLineFormatter {
 
             if input.isUsingIPFallback {
                 text += " · Approx (IP)"
+            }
+
+            if input.isUsingLastKnownGPS {
+                text += " · Last known"
             }
 
             if let lastUpdated = input.lastUpdated {

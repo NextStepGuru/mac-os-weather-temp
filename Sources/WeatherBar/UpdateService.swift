@@ -156,35 +156,46 @@ final class UpdateService: @unchecked Sendable {
         }
 
         let bundlePath = bundle.bundlePath
-        let tempRoot = fileManager.temporaryDirectory.appendingPathComponent(
-            "WeatherBarUpdate-\(UUID().uuidString)",
+        // The staging directory must outlive this call: the detached install
+        // script copies the extracted app from it after this process exits.
+        let stagingRoot = try makeStagingDirectory()
+        let zipURL = stagingRoot.appendingPathComponent("WeatherBar.zip")
+        let extractURL = stagingRoot.appendingPathComponent("extracted", isDirectory: true)
+
+        do {
+            try fileManager.createDirectory(at: extractURL, withIntermediateDirectories: true)
+
+            AppLogger.shared.log("Downloading update \(release.tag)")
+            let zipData = try await download(url: release.zipURL)
+            try zipData.write(to: zipURL, options: .atomic)
+
+            AppLogger.shared.log("Extracting update archive")
+            try runProcess(executable: "/usr/bin/ditto", arguments: ["-x", "-k", zipURL.path, extractURL.path])
+
+            let extractedAppURL = try locateAppBundle(in: extractURL)
+            try runProcess(
+                executable: "/usr/bin/xattr",
+                arguments: ["-dr", "com.apple.quarantine", extractedAppURL.path]
+            )
+
+            AppLogger.shared.log("Scheduling install of \(release.tag)")
+            try scheduleInstallAndRelaunch(sourceAppURL: extractedAppURL, targetAppPath: bundlePath, stagingPath: stagingRoot.path)
+        } catch {
+            try? fileManager.removeItem(at: stagingRoot)
+            throw error
+        }
+    }
+
+    private func makeStagingDirectory() throws -> URL {
+        let appSupport = fileManager.urls(for: .applicationSupportDirectory, in: .userDomainMask).first
+            ?? fileManager.temporaryDirectory
+        let weatherBarSupport = appSupport.appendingPathComponent("WeatherBar", isDirectory: true)
+        let staging = weatherBarSupport.appendingPathComponent(
+            "update-staging-\(UUID().uuidString)",
             isDirectory: true
         )
-        let zipURL = tempRoot.appendingPathComponent("WeatherBar.zip")
-        let extractURL = tempRoot.appendingPathComponent("extracted", isDirectory: true)
-
-        defer {
-            try? fileManager.removeItem(at: tempRoot)
-        }
-
-        try fileManager.createDirectory(at: tempRoot, withIntermediateDirectories: true)
-        try fileManager.createDirectory(at: extractURL, withIntermediateDirectories: true)
-
-        AppLogger.shared.log("Downloading update \(release.tag)")
-        let zipData = try await download(url: release.zipURL)
-        try zipData.write(to: zipURL, options: .atomic)
-
-        AppLogger.shared.log("Extracting update archive")
-        try runProcess(executable: "/usr/bin/ditto", arguments: ["-x", "-k", zipURL.path, extractURL.path])
-
-        let extractedAppURL = try locateAppBundle(in: extractURL)
-        try runProcess(
-            executable: "/usr/bin/xattr",
-            arguments: ["-dr", "com.apple.quarantine", extractedAppURL.path]
-        )
-
-        AppLogger.shared.log("Scheduling install of \(release.tag)")
-        try scheduleInstallAndRelaunch(sourceAppURL: extractedAppURL, targetAppPath: bundlePath)
+        try fileManager.createDirectory(at: staging, withIntermediateDirectories: true)
+        return staging
     }
 
     private func request(url: URL) async throws -> Data {
@@ -259,38 +270,63 @@ final class UpdateService: @unchecked Sendable {
         throw UpdateError.appBundleNotFound
     }
 
-    private func scheduleInstallAndRelaunch(sourceAppURL: URL, targetAppPath: String) throws {
+    private func scheduleInstallAndRelaunch(
+        sourceAppURL: URL,
+        targetAppPath: String,
+        stagingPath: String
+    ) throws {
         let scriptURL = fileManager.temporaryDirectory.appendingPathComponent(
             "WeatherBarInstall-\(UUID().uuidString).sh"
         )
 
-        let script = """
-        #!/bin/bash
-        set -euo pipefail
-        PID="$1"
-        TARGET="$2"
-        SOURCE="$3"
-        while kill -0 "$PID" 2>/dev/null; do
-          sleep 0.2
-        done
-        rm -rf "$TARGET"
-        /usr/bin/ditto "$SOURCE" "$TARGET"
-        /usr/bin/open "$TARGET"
-        rm -f "$0"
-        """
-
-        try script.write(to: scriptURL, atomically: true, encoding: .utf8)
+        try UpdateInstallScript.body().write(to: scriptURL, atomically: true, encoding: .utf8)
         try fileManager.setAttributes([.posixPermissions: 0o755], ofItemAtPath: scriptURL.path)
 
-        let process = Process()
-        process.executableURL = URL(fileURLWithPath: "/bin/bash")
-        process.arguments = [
-            scriptURL.path,
-            String(ProcessInfo.processInfo.processIdentifier),
-            targetAppPath,
-            sourceAppURL.path
-        ]
-        try process.run()
+        try spawnDetached(
+            executable: "/bin/bash",
+            arguments: [
+                scriptURL.path,
+                String(ProcessInfo.processInfo.processIdentifier),
+                targetAppPath,
+                sourceAppURL.path,
+                stagingPath
+            ]
+        )
+    }
+
+    /// Spawns a child in its own session with stdio redirected to /dev/null so it
+    /// survives this process's deallocation and exit. A `Process` object held only
+    /// by a local variable gets deallocated — and its child killed — as soon as
+    /// the function returns, which is exactly how a previous version lost the
+    /// install script.
+    private func spawnDetached(executable: String, arguments: [String]) throws {
+        let devNull = open("/dev/null", O_RDWR)
+        guard devNull >= 0 else {
+            throw UpdateError.spawnFailed(errno: errno)
+        }
+        defer { close(devNull) }
+
+        var fileActions: posix_spawn_file_actions_t? = nil
+        posix_spawn_file_actions_init(&fileActions)
+        posix_spawn_file_actions_adddup2(&fileActions, devNull, STDIN_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, devNull, STDOUT_FILENO)
+        posix_spawn_file_actions_adddup2(&fileActions, devNull, STDERR_FILENO)
+        defer { posix_spawn_file_actions_destroy(&fileActions) }
+
+        var attributes: posix_spawnattr_t? = nil
+        posix_spawnattr_init(&attributes)
+        // New session: the script must keep running after the app terminates.
+        posix_spawnattr_setflags(&attributes, Int16(POSIX_SPAWN_SETSID))
+        defer { posix_spawnattr_destroy(&attributes) }
+
+        var pid: pid_t = 0
+        let spawnArguments = ([executable] + arguments).map { $0.withCString { strdup($0) } } + [nil]
+        defer { spawnArguments.forEach { argument in argument.map { free(UnsafeMutableRawPointer($0)) } } }
+
+        let result = posix_spawn(&pid, executable, &fileActions, &attributes, spawnArguments, environ)
+        guard result == 0 else {
+            throw UpdateError.spawnFailed(errno: result)
+        }
     }
 
     private func runProcess(executable: String, arguments: [String]) throws {
@@ -310,6 +346,7 @@ enum UpdateError: LocalizedError {
     case cannotSelfInstall
     case appBundleNotFound
     case commandFailed(executable: String, status: Int32)
+    case spawnFailed(errno: Int32)
 
     var errorDescription: String? {
         switch self {
@@ -319,6 +356,8 @@ enum UpdateError: LocalizedError {
             return "The downloaded update did not contain WeatherBar.app."
         case .commandFailed(let executable, let status):
             return "Command failed (\(executable), exit \(status))."
+        case .spawnFailed(let errno):
+            return "Could not start the update installer (errno \(errno))."
         }
     }
 }

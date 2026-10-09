@@ -11,6 +11,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private let updateService = UpdateService()
 
     private var statusMenuItem: NSMenuItem?
+    private var setLocationMenuItem: NSMenuItem?
     private var loginItemMenuItem: NSMenuItem?
     private var updateAvailableMenuItem: NSMenuItem?
     private var checkUpdatesMenuItem: NSMenuItem?
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isManualOverride = false
     private var lastGPSLocation: CLLocation?
     private var isUsingIPFallback = false
+    private var isUsingLastKnownGPS = false
     private var ipFallbackAttempted = false
     private var isAttemptingIPFallback = false
     private var isLocating = true
@@ -82,6 +84,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         statusLine.isEnabled = false
         self.statusMenuItem = statusLine
         menu.addItem(statusLine)
+
+        let setLocationItem = NSMenuItem(
+            title: "Location Looks Wrong? Set It Manually…",
+            action: #selector(openSettings),
+            keyEquivalent: ""
+        )
+        setLocationItem.target = self
+        setLocationItem.isHidden = true
+        self.setLocationMenuItem = setLocationItem
+        menu.addItem(setLocationItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -177,7 +189,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cancelGPSGracePeriod()
             isLocating = false
             AppLogger.shared.log("Location permission denied (\(status.diagnosticsName))", level: .error)
-            attemptIPFallback(
+            attemptLocationRecovery(
                 reason: .denied,
                 deniedMessage: "Location denied — enable in System Settings → Privacy & Security → Location Services"
             )
@@ -220,7 +232,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.shared.log("Re-requesting permission and using IP-based location meanwhile", level: .info)
 
         locationProvider.requestAuthorizationIfNeeded()
-        attemptIPFallback(
+        attemptLocationRecovery(
             reason: .permissionPending,
             deniedMessage: "Waiting for location permission — allow WeatherBar in System Settings → Privacy & Security → Location Services"
         )
@@ -253,7 +265,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AppLogger.shared.log("GPS grace period expired without a fix", level: .warning)
         isLocating = false
-        attemptIPFallback(
+        attemptLocationRecovery(
             reason: .graceTimeout,
             deniedMessage: "Unable to determine location — enable Location Services or check GPS signal"
         )
@@ -536,6 +548,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         isManualOverride = true
         isUsingIPFallback = false
+        isUsingLastKnownGPS = false
         isLocating = false
         cancelGPSGracePeriod()
         cancelPermissionWatchdog()
@@ -549,6 +562,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func applyManualOverride(location: CLLocation, place: PlaceInfo, query: String) {
         isManualOverride = true
         isUsingIPFallback = false
+        isUsingLastKnownGPS = false
         isLocating = false
         cancelGPSGracePeriod()
         cancelPermissionWatchdog()
@@ -593,6 +607,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private func handleLocationUpdate(_ location: CLLocation) {
         lastGPSLocation = location
         isUsingIPFallback = false
+        isUsingLastKnownGPS = false
         isLocating = false
         cancelGPSGracePeriod()
 
@@ -632,6 +647,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.isGeocoding = false
                 self.lastPlaceInfo = placeInfo
                 AppLogger.shared.log("Geocode success: \(placeInfo.displayName)")
+                if !isManualOverride, !isUsingLastKnownGPS {
+                    SettingsStore.saveLastGPSFix(location: location, place: placeInfo)
+                    AppLogger.shared.log("Cached GPS fix for future launches", level: .debug)
+                }
                 self.updateStatusMenu()
                 self.refreshWeather()
             } catch {
@@ -646,6 +665,37 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private func handleError(_ message: String) {
         AppLogger.shared.log("Location error: \(message)", level: .error)
+    }
+
+    /// When GPS is unavailable, prefer the cached last-known GPS fix over IP
+    /// geolocation: IP location reflects the network's exit point, so on a
+    /// corporate VPN it typically resolves to the VPN egress city (often San
+    /// Francisco or another hub), not where the user actually is.
+    private func attemptLocationRecovery(
+        reason: IPFallbackReason,
+        deniedMessage: String,
+        isManualRefresh: Bool = false
+    ) {
+        guard !isManualOverride else { return }
+
+        if lastGPSLocation == nil, let (cachedLocation, cachedPlace) = SettingsStore.loadLastGPSFix() {
+            lastGPSLocation = cachedLocation
+            lastLocation = cachedLocation
+            lastPlaceInfo = cachedPlace
+            isUsingIPFallback = false
+            isUsingLastKnownGPS = true
+            isLocating = false
+            AppLogger.shared.log(
+                "Using last known GPS location: \(cachedPlace.displayName) (IP geolocation skipped — "
+                    + "on a VPN it resolves to the network's exit city)",
+                level: .warning
+            )
+            updateStatusMenu()
+            refreshWeather()
+            return
+        }
+
+        attemptIPFallback(reason: reason, deniedMessage: deniedMessage, isManualRefresh: isManualRefresh)
     }
 
     private func attemptIPFallback(
@@ -687,9 +737,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             do {
                 let (location, place) = try await ipLocationService.lookup()
                 self.isUsingIPFallback = true
+                self.isUsingLastKnownGPS = false
                 self.lastLocation = location
                 self.lastPlaceInfo = place
-                AppLogger.shared.log("IP fallback success: \(place.displayName)")
+                AppLogger.shared.log(
+                    "IP fallback success: \(place.displayName) — note: IP geolocation resolves to your "
+                        + "network's exit point; on a corporate VPN this is often the VPN egress city "
+                        + "(commonly San Francisco), not your actual location. Set a manual location in "
+                        + "Settings… if this looks wrong",
+                    level: .warning
+                )
                 self.updateStatusMenu()
                 self.refreshWeather()
             } catch {
@@ -708,10 +765,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 "Weather refresh skipped: no location yet (\(locationDiagnosticsSummary()))",
                 level: .debug
             )
-            // A manual refresh is an explicit request for data — retry IP fallback so the
-            // user is not stuck at "!°" when GPS authorization is pending or blocked.
+            // A manual refresh is an explicit request for data — retry location
+            // recovery so the user is not stuck at "!°" when GPS authorization
+            // is pending or blocked.
             if isManualRefresh {
-                attemptIPFallback(
+                attemptLocationRecovery(
                     reason: .manualRefresh,
                     deniedMessage: "Unable to determine location — check Location Services or set a location in Settings…",
                     isManualRefresh: true
@@ -769,12 +827,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             location: lastPlaceInfo == nil ? lastLocation : nil,
             isManualOverride: isManualOverride,
             isUsingIPFallback: isUsingIPFallback,
+            isUsingLastKnownGPS: isUsingLastKnownGPS,
             lastUpdated: lastUpdated,
             isFetching: isFetching,
             lastFetchFailed: lastFetchFailed,
             isLocating: isLocating,
             now: Date()
         )
+
+        setLocationMenuItem?.isHidden = !(isUsingIPFallback || isUsingLastKnownGPS)
 
         if let title = StatusLineFormatter.format(input) {
             statusMenuItem.title = title
