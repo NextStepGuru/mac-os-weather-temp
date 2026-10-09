@@ -127,7 +127,7 @@ flowchart TD
     useIP -.->|GPS fix arrives| useGPS
 ```
 
-**Priority:** Manual override > GPS (CoreLocation) > last known GPS (cached, up to 7 days) > IP fallback (timed)
+**Priority:** Manual override > GPS (CoreLocation) > last known GPS (cached, up to 30 days) > IP fallback (timed)
 
 - **GPS** — most accurate; used when Location Services are allowed. The app waits up to **12 seconds** for a first fix before falling back. The most recent fix is cached so later launches without GPS (e.g. VPN blocking Wi-Fi positioning) still use a real location, labeled `Last known`.
 - **Manual** — set any place in **Settings…**; GPS updates are ignored while active.

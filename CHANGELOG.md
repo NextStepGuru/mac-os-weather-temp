@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Log viewer gained **Copy All**, **Save As…**, and **Refresh** buttons so
   logs can be captured and shared for diagnosis.
+- Wi-Fi positioning diagnostics: when CoreLocation produces no fix, the log now
+  reports the Wi-Fi interface/power/association state and probes Apple's
+  location service for reachability, with concrete guidance for each root cause
+  (Wi-Fi off, Ethernet-only Mac in an area Apple's Wi-Fi database doesn't know,
+  VPN/firewall blocking Apple's servers).
+- Cached GPS fixes now stay valid for 30 days (up from 7) — even a stale fix
+  beats the VPN egress city that IP geolocation reports.
 - **Allow Location Access…** menu item that opens System Settings directly to
   Privacy & Security → Location Services — the reliable grant path when the
   permission prompt never appears (common on MDM-managed corporate Macs).
