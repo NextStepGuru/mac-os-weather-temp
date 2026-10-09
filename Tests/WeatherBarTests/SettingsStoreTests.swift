@@ -70,4 +70,45 @@ struct SettingsStoreTests {
         SettingsStore.manualLocationQuery = "Seattle, WA"
         #expect(SettingsStore.manualLocationQuery == "Seattle, WA")
     }
+
+    @Test func lastGPSFixRoundTrip() {
+        let defaults = makeDefaults()
+        SettingsStore.defaults = defaults
+
+        let location = CLLocation(latitude: 45.5152, longitude: -122.6784)
+        let place = PlaceInfo(city: "Portland", state: "OR", timeZone: TimeZone(identifier: "America/Los_Angeles")!)
+        let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        SettingsStore.saveLastGPSFix(location: location, place: place, at: cachedAt)
+
+        let loaded = SettingsStore.loadLastGPSFix(now: cachedAt.addingTimeInterval(60))
+        #expect(loaded != nil)
+        #expect(abs(loaded!.0.coordinate.latitude - 45.5152) < 0.0001)
+        #expect(abs(loaded!.0.coordinate.longitude - (-122.6784)) < 0.0001)
+        #expect(loaded!.1.city == "Portland")
+        #expect(loaded!.1.state == "OR")
+    }
+
+    @Test func lastGPSFixReturnsNilWhenStaleAndClearsEntry() {
+        let defaults = makeDefaults()
+        SettingsStore.defaults = defaults
+
+        let location = CLLocation(latitude: 45.5152, longitude: -122.6784)
+        let place = PlaceInfo(city: "Portland", state: "OR", timeZone: TimeZone(identifier: "America/Los_Angeles")!)
+        let cachedAt = Date(timeIntervalSince1970: 1_700_000_000)
+        SettingsStore.saveLastGPSFix(location: location, place: place, at: cachedAt)
+
+        let stale = SettingsStore.loadLastGPSFix(now: cachedAt.addingTimeInterval(SettingsStore.lastGPSFixMaxAge + 1))
+        #expect(stale == nil)
+
+        // The stale entry is cleared, so even a fresh read finds nothing.
+        let fresh = SettingsStore.loadLastGPSFix(now: cachedAt.addingTimeInterval(60))
+        #expect(fresh == nil)
+    }
+
+    @Test func lastGPSFixReturnsNilWhenMissing() {
+        let defaults = makeDefaults()
+        SettingsStore.defaults = defaults
+
+        #expect(SettingsStore.loadLastGPSFix() == nil)
+    }
 }

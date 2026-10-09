@@ -29,6 +29,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - CI and `scripts/test.sh` run tests on arm64 only; releases still ship a
   universal (`arm64` + `x86_64`) binary.
 
+### Fixed
+
+- Self-update quit the app without installing or relaunching: the detached
+  install script was killed immediately (its `Process` object was deallocated)
+  and its staged bundle was deleted by a cleanup path before it could copy it.
+  The installer now spawns fully detached in its own session, stages the new
+  bundle in a stable directory, swaps with a backup and rollback, and
+  relaunches the app automatically (relaunching the old app if anything fails).
+- Wrong city (e.g. San Francisco) behind a corporate VPN: IP geolocation
+  resolves to the network's exit point, not the user's location. The app now
+  caches the last real GPS fix and prefers it over IP fallback for up to 7
+  days, labels it `Last known` in the menu, and offers a one-click
+  **Location Looks Wrong? Set It Manually…** menu item whenever the location
+  is approximate.
+
+### Added
+
+- Log viewer gained **Copy All**, **Save As…**, and **Refresh** buttons so
+  logs can be captured and shared for diagnosis.
+
 ## [0.1.0] - 2026-03-23
 
 ### Added

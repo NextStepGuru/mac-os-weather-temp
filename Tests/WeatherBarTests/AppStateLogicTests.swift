@@ -104,6 +104,26 @@ struct AppStateLogicTests {
         #expect(result.contains(" · Refreshing…"))
     }
 
+    @Test func statusLineLastKnownGPSTag() {
+        let input = StatusLineInput(
+            loginItemError: nil,
+            isGeocoding: false,
+            placeInfo: portlandPlace(),
+            location: nil,
+            isManualOverride: false,
+            isUsingIPFallback: false,
+            isUsingLastKnownGPS: true,
+            lastUpdated: nil,
+            isFetching: false,
+            lastFetchFailed: false,
+            isLocating: false,
+            now: fixedNow
+        )
+        let result = StatusLineFormatter.format(input)!
+        #expect(result.contains(" · Last known"))
+        #expect(!result.contains("Approx (IP)"))
+    }
+
     @Test func statusLineUpdateFailed() {
         let input = StatusLineInput(
             loginItemError: nil,
