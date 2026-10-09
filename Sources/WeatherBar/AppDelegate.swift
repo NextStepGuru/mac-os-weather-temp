@@ -31,13 +31,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var lastGPSLocation: CLLocation?
     private var isUsingIPFallback = false
     private var ipFallbackAttempted = false
+    private var isAttemptingIPFallback = false
     private var isLocating = true
     private var gpsGraceTimer: Timer?
+    private var permissionWatchdogTimer: Timer?
 
     private let refreshInterval: TimeInterval = 10 * 60
     private let updateCheckInterval: TimeInterval = UpdateSettings.defaultCheckInterval
     private let coordinateTolerance = 0.01
     private let gpsGracePeriod: TimeInterval = 12
+    /// How long to wait for the location permission prompt to be answered before
+    /// warning and falling back to IP-based location.
+    private let permissionWatchdogInterval: TimeInterval = 30
 
     func applicationDidFinishLaunching(_ notification: Notification) {
         AppLogger.shared.log("WeatherBar launched")
@@ -62,6 +67,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     func applicationWillTerminate(_ notification: Notification) {
         AppLogger.shared.log("WeatherBar terminating")
         gpsGraceTimer?.invalidate()
+        permissionWatchdogTimer?.invalidate()
         refreshTimer?.invalidate()
         updateTimer?.invalidate()
         locationProvider.stop()
@@ -162,13 +168,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         switch status {
         case .authorizedAlways, .authorizedWhenInUse:
+            cancelPermissionWatchdog()
             isLocating = true
             updateStatusMenu()
             startGPSGracePeriod()
         case .denied, .restricted:
+            cancelPermissionWatchdog()
             cancelGPSGracePeriod()
             isLocating = false
-            AppLogger.shared.log("Location permission denied", level: .error)
+            AppLogger.shared.log("Location permission denied (\(status.diagnosticsName))", level: .error)
             attemptIPFallback(
                 reason: .denied,
                 deniedMessage: "Location denied — enable in System Settings → Privacy & Security → Location Services"
@@ -176,9 +184,53 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         case .notDetermined:
             isLocating = true
             updateStatusMenu()
+            startPermissionWatchdog()
         @unknown default:
             break
         }
+    }
+
+    /// macOS never re-prompts once the permission sheet is dismissed, and if system
+    /// Location Services are off the prompt never appears at all — the app would sit at
+    /// "Locating…" forever. Watch for that and recover with guidance plus IP fallback.
+    private func startPermissionWatchdog() {
+        cancelPermissionWatchdog()
+        permissionWatchdogTimer = Timer.scheduledTimer(withTimeInterval: permissionWatchdogInterval, repeats: false) { [weak self] _ in
+            Task { @MainActor in
+                self?.handlePermissionWatchdogTimeout()
+            }
+        }
+    }
+
+    private func cancelPermissionWatchdog() {
+        permissionWatchdogTimer?.invalidate()
+        permissionWatchdogTimer = nil
+    }
+
+    private func handlePermissionWatchdogTimeout() {
+        guard !isManualOverride else { return }
+        guard locationProvider.currentAuthorizationStatus == .notDetermined else { return }
+
+        AppLogger.shared.log(
+            "Location permission still notDetermined after \(Int(permissionWatchdogInterval))s — the permission prompt was never answered. "
+                + "Either the prompt was dismissed/closed, or system Location Services are off.",
+            level: .warning
+        )
+        AppLogger.shared.log(locationDiagnosticsSummary(), level: .warning)
+        AppLogger.shared.log("Re-requesting permission and using IP-based location meanwhile", level: .info)
+
+        locationProvider.requestAuthorizationIfNeeded()
+        attemptIPFallback(
+            reason: .permissionPending,
+            deniedMessage: "Waiting for location permission — allow WeatherBar in System Settings → Privacy & Security → Location Services"
+        )
+    }
+
+    private func locationDiagnosticsSummary() -> String {
+        "Diagnostics: system Location Services enabled=\(CLLocationManager.locationServicesEnabled()), "
+            + "authorization=\(locationProvider.currentAuthorizationStatus.diagnosticsName), "
+            + "gpsFix=\(lastGPSLocation != nil), ipFallbackAttempted=\(ipFallbackAttempted), "
+            + "lastLocation=\(lastLocation != nil), manualOverride=\(isManualOverride)"
     }
 
     private func startGPSGracePeriod() {
@@ -415,7 +467,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     @objc private func refreshNow() {
         AppLogger.shared.log("Manual refresh requested")
-        refreshWeather()
+        refreshWeather(isManualRefresh: true)
     }
 
     @objc private func viewLogs() {
@@ -486,6 +538,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isUsingIPFallback = false
         isLocating = false
         cancelGPSGracePeriod()
+        cancelPermissionWatchdog()
         lastLocation = location
         lastPlaceInfo = place
         AppLogger.shared.log("Restored manual location: \(place.displayName)")
@@ -498,6 +551,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isUsingIPFallback = false
         isLocating = false
         cancelGPSGracePeriod()
+        cancelPermissionWatchdog()
         lastLocation = location
         lastPlaceInfo = place
         SettingsStore.saveManualLocation(query: query, location: location, place: place)
@@ -528,7 +582,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private var isLocationAuthorized: Bool {
-        switch CLLocationManager().authorizationStatus {
+        switch locationProvider.currentAuthorizationStatus {
         case .authorizedAlways, .authorizedWhenInUse:
             return true
         default:
@@ -583,7 +637,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 self.isGeocoding = false
                 self.lastPlaceInfo = nil
-                AppLogger.shared.log("Geocode failed: \(error.localizedDescription)", level: .warning)
+                AppLogger.shared.log("Geocode failed: \(NetworkDiagnostics.describe(error))", level: .warning)
                 self.updateStatusMenu()
                 self.refreshWeather()
             }
@@ -594,13 +648,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         AppLogger.shared.log("Location error: \(message)", level: .error)
     }
 
-    private func attemptIPFallback(reason: IPFallbackReason, deniedMessage: String) {
+    private func attemptIPFallback(
+        reason: IPFallbackReason,
+        deniedMessage: String,
+        isManualRefresh: Bool = false
+    ) {
+        if isAttemptingIPFallback {
+            AppLogger.shared.log("IP fallback already in flight, skipping (\(reason))", level: .debug)
+            return
+        }
+
         switch IPFallbackPolicy.shouldAttempt(
             reason: reason,
             isManualOverride: isManualOverride,
             lastGPSLocation: lastGPSLocation,
             ipFallbackAttempted: ipFallbackAttempted,
-            lastLocation: lastLocation
+            lastLocation: lastLocation,
+            isManualRefresh: isManualRefresh
         ) {
         case .skipManualOverride, .skipHasGPS:
             return
@@ -615,9 +679,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
 
         ipFallbackAttempted = true
+        isAttemptingIPFallback = true
         AppLogger.shared.log("Attempting IP-based location fallback (\(reason))")
 
         Task {
+            defer { self.isAttemptingIPFallback = false }
             do {
                 let (location, place) = try await ipLocationService.lookup()
                 self.isUsingIPFallback = true
@@ -627,7 +693,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 self.updateStatusMenu()
                 self.refreshWeather()
             } catch {
-                AppLogger.shared.log("IP fallback failed: \(error.localizedDescription)", level: .error)
+                AppLogger.shared.log("IP fallback failed: \(NetworkDiagnostics.describe(error))", level: .error)
                 if self.lastLocation == nil {
                     self.statusItem.button?.title = "!°"
                     self.statusMenuItem?.title = deniedMessage
@@ -636,9 +702,21 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
     }
 
-    private func refreshWeather() {
+    private func refreshWeather(isManualRefresh: Bool = false) {
         guard let location = lastLocation else {
-            AppLogger.shared.log("Weather refresh skipped: no location yet", level: .debug)
+            AppLogger.shared.log(
+                "Weather refresh skipped: no location yet (\(locationDiagnosticsSummary()))",
+                level: .debug
+            )
+            // A manual refresh is an explicit request for data — retry IP fallback so the
+            // user is not stuck at "!°" when GPS authorization is pending or blocked.
+            if isManualRefresh {
+                attemptIPFallback(
+                    reason: .manualRefresh,
+                    deniedMessage: "Unable to determine location — check Location Services or set a location in Settings…",
+                    isManualRefresh: true
+                )
+            }
             return
         }
         guard !isFetching else {

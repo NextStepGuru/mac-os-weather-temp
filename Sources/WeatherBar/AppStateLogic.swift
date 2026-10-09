@@ -4,6 +4,10 @@ import Foundation
 enum IPFallbackReason: Equatable {
     case denied
     case graceTimeout
+    /// The permission prompt was never answered (status stuck at notDetermined).
+    case permissionPending
+    /// The user explicitly asked for a refresh while no location is available.
+    case manualRefresh
 }
 
 enum IPFallbackDecision: Equatable {
@@ -19,7 +23,8 @@ enum IPFallbackPolicy {
         isManualOverride: Bool,
         lastGPSLocation: CLLocation?,
         ipFallbackAttempted: Bool,
-        lastLocation: CLLocation?
+        lastLocation: CLLocation?,
+        isManualRefresh: Bool = false
     ) -> IPFallbackDecision {
         _ = reason
         if isManualOverride {
@@ -28,7 +33,9 @@ enum IPFallbackPolicy {
         if lastGPSLocation != nil {
             return .skipHasGPS
         }
-        if ipFallbackAttempted {
+        // A manual refresh is an explicit user request for data, so allow one retry
+        // even if a previous attempt already failed (and produced no location).
+        if ipFallbackAttempted, !(isManualRefresh && lastLocation == nil) {
             return .alreadyAttempted(showDenied: lastLocation == nil)
         }
         return .attempt
