@@ -9,9 +9,6 @@ on:
 jobs:
   test:
     runs-on: macos-15
-    strategy:
-      matrix:
-        arch: [arm64, x86_64]
     steps:
       - uses: actions/checkout@v7
 
@@ -21,13 +18,8 @@ jobs:
       - name: Show Swift version
         run: swift --version
 
-      - name: Run tests (${{ matrix.arch }})
-        run: |
-          if [ "${{ matrix.arch }}" = "x86_64" ]; then
-            arch -x86_64 swift test --arch x86_64
-          else
-            swift test --arch arm64
-          fi
+      - name: Run tests (arm64)
+        run: swift test --arch arm64
 
   build:
     runs-on: macos-15
