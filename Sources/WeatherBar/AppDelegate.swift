@@ -214,6 +214,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             cancelPermissionWatchdog()
             isLocating = true
             updateStatusMenu()
+            // Permission just arrived — reconsider the IP fallback if an earlier
+            // attempt ran while permission was pending or denied.
+            ipFallbackAttempted = false
             startGPSGracePeriod()
         case .denied, .restricted:
             cancelPermissionWatchdog()
@@ -649,6 +652,19 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             lastLocation = gpsLocation
             reverseGeocode(gpsLocation)
         } else {
+            // Without GPS (e.g. desktops whose Wi-Fi Apple can't position), keep the
+            // just-disabled manual location as "last known" instead of discarding a
+            // correct answer and showing wrong-city IP weather or no weather at all.
+            if ManualOverrideDisablePolicy.shouldKeepAsLastKnown(hasGPSFix: false, hasManualLocation: lastLocation != nil),
+               let location = lastLocation, let place = lastPlaceInfo {
+                SettingsStore.saveLastGPSFix(location: location, place: place)
+                AppLogger.shared.log(
+                    "Keeping \(place.displayName) as last known location until GPS provides a real fix"
+                )
+            }
+
+            // The situation changed; let IP fallback be reconsidered this session.
+            ipFallbackAttempted = false
             lastLocation = nil
             lastPlaceInfo = nil
             isLocating = true
@@ -752,7 +768,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             isUsingLastKnownGPS = true
             isLocating = false
             AppLogger.shared.log(
-                "Using last known GPS location: \(cachedPlace.displayName) (IP geolocation skipped — "
+                "Using last known location: \(cachedPlace.displayName) (IP geolocation skipped — "
                     + "on a VPN it resolves to the network's exit city)",
                 level: .warning
             )
