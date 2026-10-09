@@ -62,20 +62,35 @@ struct IPLocationService {
         request.setValue(Self.userAgent, forHTTPHeaderField: "User-Agent")
         request.setValue("application/json", forHTTPHeaderField: "Accept")
 
-        let (data, response) = try await session.data(for: request)
+        let startedAt = Date()
+        do {
+            let (data, response) = try await session.data(for: request)
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
 
-        guard let httpResponse = response as? HTTPURLResponse else {
-            throw URLError(.badServerResponse)
-        }
+            guard let httpResponse = response as? HTTPURLResponse else {
+                throw URLError(.badServerResponse)
+            }
 
-        guard (200...299).contains(httpResponse.statusCode) else {
+            guard (200...299).contains(httpResponse.statusCode) else {
+                AppLogger.shared.log(
+                    "IP geolocation bad response: HTTP \(httpResponse.statusCode) from \(url.host ?? "") in \(elapsedMs)ms (\(data.count) bytes)",
+                    level: .error
+                )
+                throw URLError(.badServerResponse)
+            }
+
             AppLogger.shared.log(
-                "IP geolocation bad response: HTTP \(httpResponse.statusCode) for \(url.host ?? "")",
-                level: .error
+                "IP geolocation ok: HTTP \(httpResponse.statusCode) from \(url.host ?? "") in \(elapsedMs)ms (\(data.count) bytes)",
+                level: .debug
             )
-            throw URLError(.badServerResponse)
+            return data
+        } catch {
+            let elapsedMs = Int(Date().timeIntervalSince(startedAt) * 1000)
+            AppLogger.shared.log(
+                "IP geolocation request to \(url.host ?? "") failed after \(elapsedMs)ms: \(NetworkDiagnostics.describe(error))",
+                level: .debug
+            )
+            throw error
         }
-
-        return data
     }
 }

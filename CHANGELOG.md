@@ -11,6 +11,18 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Open source documentation, MIT license, CI workflow, and GitHub templates.
 - Universal binary (`arm64` + `x86_64`) for native Intel Mac support.
+- Detailed diagnostics logging: readable location-authorization statuses, system
+  Location Services state, per-fix GPS accuracy/age, per-request HTTP status,
+  latency and byte counts, and VPN/firewall-aware descriptions for weather,
+  IP-geolocation, and geocoding failures (DNS blocks, TLS interception, timeouts).
+
+### Fixed
+
+- No-weather hang when the location permission prompt is never answered: a
+  30-second watchdog now re-prompts, logs actionable diagnostics, and falls back
+  to IP-based location instead of sitting at "Locating…" forever.
+- **Refresh now** retries IP-based location when no location is available
+  instead of silently skipping the weather fetch.
 
 ## [0.1.0] - 2026-03-23
 
