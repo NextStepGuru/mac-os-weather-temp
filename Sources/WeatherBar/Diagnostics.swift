@@ -1,6 +1,10 @@
 import CoreLocation
 import Foundation
 
+#if canImport(Darwin)
+import Darwin
+#endif
+
 extension CLAuthorizationStatus {
     /// Human-readable name for logs, alongside the raw value CoreLocation reports.
     var diagnosticsName: String {
@@ -12,6 +16,75 @@ extension CLAuthorizationStatus {
         case .authorizedAlways: return "authorizedAlways"
         @unknown default: return "unknown(\(rawValue))"
         }
+    }
+}
+
+/// System-level facts that explain location behavior: VPN tunnels, MDM
+/// management, and a consolidated startup inventory of every location source.
+enum SystemDiagnostics {
+    /// Interface names present on the system (e.g. lo0, en0, utun3).
+    static func networkInterfaceNames() -> [String] {
+        var interfaceList: UnsafeMutablePointer<ifaddrs>?
+        guard getifaddrs(&interfaceList) == 0, let first = interfaceList else { return [] }
+        defer { freeifaddrs(interfaceList) }
+
+        var names: [String] = []
+        var cursor: UnsafeMutablePointer<ifaddrs>? = first
+        while let current = cursor {
+            let name = String(cString: current.pointee.ifa_name)
+            if !names.contains(name) {
+                names.append(name)
+            }
+            cursor = current.pointee.ifa_next
+        }
+        return names.sorted()
+    }
+
+    /// Tunnel interfaces that usually carry VPN traffic. Note: some system
+    /// services (iCloud Private Relay) also create utun interfaces, which is why
+    /// presence is reported as "likely", not certain.
+    static func vpnInterfaceNames(from interfaces: [String]) -> [String] {
+        interfaces.filter { interface in
+            interface.hasPrefix("utun") || interface.hasPrefix("ppp") || interface.hasPrefix("ipsec")
+        }
+    }
+
+    static func vpnInterfacesPresent() -> [String] {
+        vpnInterfaceNames(from: networkInterfaceNames())
+    }
+
+    /// Corporate MDM enrollment usually installs managed preferences here; a
+    /// managed Mac may have policy suppressing location permission prompts.
+    static func isMDMManaged(
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        fileExists("/Library/Managed Preferences")
+    }
+
+    /// One-line inventory of every location source, logged at startup and
+    /// whenever the location path changes so the log always answers
+    /// "where did this location come from, and why that one?".
+    static func locationSourceSummary(
+        authorization: CLAuthorizationStatus,
+        locationServicesEnabled: Bool,
+        cachedGPSFixDescription: String?,
+        manualOverrideActive: Bool,
+        vpnInterfaces: [String],
+        mdmManaged: Bool
+    ) -> String {
+        var parts: [String] = [
+            "authorization=\(authorization.diagnosticsName)",
+            "systemLocationServices=\(locationServicesEnabled ? "on" : "off")",
+            "cachedGPSFix=\(cachedGPSFixDescription ?? "none")",
+            "manualOverride=\(manualOverrideActive ? "on" : "off")"
+        ]
+        if !vpnInterfaces.isEmpty {
+            parts.append("vpnTunnels=[\(vpnInterfaces.joined(separator: ", "))] (IP geolocation will resolve to the tunnel's exit city)")
+        }
+        if mdmManaged {
+            parts.append("mdmManaged=true (corporate policy may suppress the location permission prompt)")
+        }
+        return "Location sources: " + parts.joined(separator: ", ")
     }
 }
 

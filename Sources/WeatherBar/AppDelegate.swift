@@ -12,6 +12,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
     private var statusMenuItem: NSMenuItem?
     private var setLocationMenuItem: NSMenuItem?
+    private var allowLocationMenuItem: NSMenuItem?
     private var loginItemMenuItem: NSMenuItem?
     private var updateAvailableMenuItem: NSMenuItem?
     private var checkUpdatesMenuItem: NSMenuItem?
@@ -30,6 +31,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var loginItemError: String?
     private var isManualOverride = false
     private var lastGPSLocation: CLLocation?
+    private var currentAuthStatus: CLAuthorizationStatus = .notDetermined
     private var isUsingIPFallback = false
     private var isUsingLastKnownGPS = false
     private var ipFallbackAttempted = false
@@ -58,6 +60,23 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         startUpdateTimer()
         scheduleInitialUpdateCheck()
+        logLocationSourceSummary("startup")
+    }
+
+    /// Logs every location source and its state so the log always answers
+    /// "where did this location come from, and why that one?".
+    private func logLocationSourceSummary(_ context: String) {
+        let cachedFix = SettingsStore.loadLastGPSFix().map { "\($1.displayName)" }
+        AppLogger.shared.log(
+            SystemDiagnostics.locationSourceSummary(
+                authorization: locationProvider.currentAuthorizationStatus,
+                locationServicesEnabled: CLLocationManager.locationServicesEnabled(),
+                cachedGPSFixDescription: cachedFix,
+                manualOverrideActive: isManualOverride,
+                vpnInterfaces: SystemDiagnostics.vpnInterfacesPresent(),
+                mdmManaged: SystemDiagnostics.isMDMManaged()
+            ) + " (\(context))"
+        )
     }
 
     private func requestLocationPermissionOnLaunch() {
@@ -94,6 +113,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         setLocationItem.isHidden = true
         self.setLocationMenuItem = setLocationItem
         menu.addItem(setLocationItem)
+
+        let allowLocationItem = NSMenuItem(
+            title: "Allow Location Access…",
+            action: #selector(openLocationSettings),
+            keyEquivalent: ""
+        )
+        allowLocationItem.target = self
+        self.allowLocationMenuItem = allowLocationItem
+        menu.addItem(allowLocationItem)
 
         menu.addItem(NSMenuItem.separator())
 
@@ -176,6 +204,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     }
 
     private func handleAuthorizationChange(_ status: CLAuthorizationStatus) {
+        currentAuthStatus = status
+        logLocationSourceSummary("authorization changed")
+
         guard !isManualOverride else { return }
 
         switch status {
@@ -225,10 +256,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         AppLogger.shared.log(
             "Location permission still notDetermined after \(Int(permissionWatchdogInterval))s — the permission prompt was never answered. "
-                + "Either the prompt was dismissed/closed, or system Location Services are off.",
+                + "Either the prompt was dismissed/closed, or it never appeared (common on MDM-managed corporate Macs).",
             level: .warning
         )
         AppLogger.shared.log(locationDiagnosticsSummary(), level: .warning)
+        AppLogger.shared.log(
+            "Granting location access enables real positioning even on a VPN — use WeatherBar menu → "
+                + "Allow Location Access… to open System Settings directly",
+            level: .info
+        )
         AppLogger.shared.log("Re-requesting permission and using IP-based location meanwhile", level: .info)
 
         locationProvider.requestAuthorizationIfNeeded()
@@ -486,6 +522,18 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         LogViewerWindowController.show()
     }
 
+    /// Opens System Settings directly to Privacy & Security → Location Services.
+    /// This is the reliable path to grant location access when the in-app
+    /// permission prompt never appears (common on MDM-managed Macs) — granting
+    /// permission enables Wi-Fi positioning, which works even on VPN.
+    @objc private func openLocationSettings() {
+        AppLogger.shared.log("Opening System Settings → Privacy & Security → Location Services")
+        guard let url = URL(string: "x-apple.systempreferences:com.apple.preference.security?Privacy_LocationServices") else {
+            return
+        }
+        NSWorkspace.shared.open(url)
+    }
+
     @objc private func checkForUpdates() {
         Task { @MainActor in
             await performUpdateCheck(force: true, showUserFeedback: true)
@@ -730,7 +778,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
 
         ipFallbackAttempted = true
         isAttemptingIPFallback = true
-        AppLogger.shared.log("Attempting IP-based location fallback (\(reason))")
+
+        let vpnInterfaces = SystemDiagnostics.vpnInterfacesPresent()
+        var contextLog = "No GPS source available (authorization: \(locationProvider.currentAuthorizationStatus.diagnosticsName), "
+            + "cached GPS fix: \(lastGPSLocation == nil ? "none" : "present")) — falling back to IP geolocation (\(reason))"
+        if !vpnInterfaces.isEmpty {
+            contextLog += ". VPN tunnels active (\(vpnInterfaces.joined(separator: ", "))): IP geolocation "
+                + "resolves to the VPN's exit city, not your actual location"
+        }
+        AppLogger.shared.log(contextLog, level: vpnInterfaces.isEmpty ? .info : .warning)
 
         Task {
             defer { self.isAttemptingIPFallback = false }
@@ -836,6 +892,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         )
 
         setLocationMenuItem?.isHidden = !(isUsingIPFallback || isUsingLastKnownGPS)
+        allowLocationMenuItem?.isHidden = isLocationAuthorized || isManualOverride
 
         if let title = StatusLineFormatter.format(input) {
             statusMenuItem.title = title
