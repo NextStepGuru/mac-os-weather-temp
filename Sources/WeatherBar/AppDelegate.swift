@@ -295,11 +295,29 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         gpsGraceTimer = nil
     }
 
+    /// Explains, from the machine's own state, why CoreLocation has no fix:
+    /// Wi-Fi hardware/power/association plus Apple location-service reachability.
+    private func logLocationEnvironmentDiagnostics() {
+        Task.detached(priority: .utility) {
+            let state = WiFiDiagnostics.captureState()
+            let reachable = await LocationServiceProbe.probe()
+            AppLogger.shared.log(
+                "Wi-Fi state: interface=\(state.interface ?? "none"), powered=\(state.poweredOn.map { $0 ? "on" : "off" } ?? "unknown"), "
+                    + "connectedNetwork=\(state.associatedNetwork ?? "none"), appleLocationService=\(reachable.map { $0 ? "reachable" : "blocked" } ?? "unknown")",
+                level: .warning
+            )
+            for line in WiFiDiagnostics.guidance(for: state, appleLocationReachable: reachable) {
+                AppLogger.shared.log(line, level: .warning)
+            }
+        }
+    }
+
     private func handleGPSGraceTimeout() {
         guard !isManualOverride else { return }
         guard lastGPSLocation == nil else { return }
 
         AppLogger.shared.log("GPS grace period expired without a fix", level: .warning)
+        logLocationEnvironmentDiagnostics()
         isLocating = false
         attemptLocationRecovery(
             reason: .graceTimeout,

@@ -20,8 +20,9 @@ enum SettingsStore {
     }
 
     /// How long a cached GPS fix stays trustworthy as a fallback. Beyond this the
-    /// device may have traveled, so a stale fix would report the wrong city.
-    static let lastGPSFixMaxAge: TimeInterval = 7 * 24 * 60 * 60
+    /// device may have traveled, so a stale fix would report the wrong city — but
+    /// even a stale fix beats the VPN egress city IP geolocation would produce.
+    static let lastGPSFixMaxAge: TimeInterval = 30 * 24 * 60 * 60
 
     static var defaults: UserDefaults = .standard
 
