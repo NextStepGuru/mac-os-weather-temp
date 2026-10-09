@@ -24,6 +24,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **Refresh now** retries IP-based location when no location is available
   instead of silently skipping the weather fetch.
 
+### Changed
+
+- CI and `scripts/test.sh` run tests on arm64 only; releases still ship a
+  universal (`arm64` + `x86_64`) binary.
+
 ## [0.1.0] - 2026-03-23
 
 ### Added
