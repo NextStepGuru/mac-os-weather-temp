@@ -31,6 +31,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Fixed
 
+- Disabling the manual location override could leave the app stuck at
+  "!° / Unable to determine location" for the rest of the session: the IP
+  fallback was once-per-launch and refused to re-run. The fallback budget now
+  resets when the manual override is disabled or location permission arrives,
+  and a just-disabled manual location is kept as the `Last known` source (until
+  a real GPS fix replaces it) instead of being discarded in favor of wrong-city
+  IP geolocation.
 - Self-update quit the app without installing or relaunching: the detached
   install script was killed immediately (its `Process` object was deallocated)
   and its staged bundle was deleted by a cleanup path before it could copy it.

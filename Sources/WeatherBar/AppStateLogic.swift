@@ -42,6 +42,15 @@ enum IPFallbackPolicy {
     }
 }
 
+enum ManualOverrideDisablePolicy {
+    /// When the user turns off a manual location override, whether the location
+    /// should be kept as the "last known" cache. With a live GPS fix the real fix
+    /// wins anyway, so only preserve the manual location when GPS has nothing.
+    static func shouldKeepAsLastKnown(hasGPSFix: Bool, hasManualLocation: Bool) -> Bool {
+        !hasGPSFix && hasManualLocation
+    }
+}
+
 struct StatusLineInput {
     var loginItemError: String?
     var isGeocoding: Bool

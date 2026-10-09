@@ -104,6 +104,18 @@ struct AppStateLogicTests {
         #expect(result.contains(" · Refreshing…"))
     }
 
+    @Test func manualDisableKeepsLocationAsLastKnownWhenNoGPS() {
+        #expect(ManualOverrideDisablePolicy.shouldKeepAsLastKnown(hasGPSFix: false, hasManualLocation: true))
+    }
+
+    @Test func manualDisableDiscardsLocationWhenGPSExists() {
+        #expect(!ManualOverrideDisablePolicy.shouldKeepAsLastKnown(hasGPSFix: true, hasManualLocation: true))
+    }
+
+    @Test func manualDisableHasNothingToKeepWithoutManualLocation() {
+        #expect(!ManualOverrideDisablePolicy.shouldKeepAsLastKnown(hasGPSFix: false, hasManualLocation: false))
+    }
+
     @Test func statusLineLastKnownGPSTag() {
         let input = StatusLineInput(
             loginItemError: nil,
