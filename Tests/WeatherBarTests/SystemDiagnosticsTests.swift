@@ -51,4 +51,59 @@ struct SystemDiagnosticsTests {
         #expect(!summary.contains("mdmManaged"))
         #expect(summary.contains("cachedGPSFix=Portland, OR"))
     }
+
+    @Test func cgnatAddressDetection() {
+        #expect(SystemDiagnostics.isCGNATAddress("100.96.0.2"))
+        #expect(SystemDiagnostics.isCGNATAddress("100.127.255.254"))
+        #expect(!SystemDiagnostics.isCGNATAddress("100.128.0.1"))
+        #expect(!SystemDiagnostics.isCGNATAddress("192.168.1.1"))
+        #expect(!SystemDiagnostics.isCGNATAddress("not-an-ip"))
+    }
+
+    @Test func warpActiveDetectsUTunWithCGNATAddress() {
+        let interfaces = [
+            SystemDiagnostics.InterfaceAddresses(name: "en0", ipv4Addresses: ["192.168.1.50"]),
+            SystemDiagnostics.InterfaceAddresses(name: "utun0", ipv4Addresses: ["100.96.0.2"])
+        ]
+        #expect(SystemDiagnostics.isCloudflareWARPActive(interfaces: interfaces))
+    }
+
+    @Test func warpInactiveWithoutCGNATTunnel() {
+        let interfaces = [
+            SystemDiagnostics.InterfaceAddresses(name: "en0", ipv4Addresses: ["192.168.1.50"]),
+            SystemDiagnostics.InterfaceAddresses(name: "utun3", ipv4Addresses: ["10.0.0.1"])
+        ]
+        #expect(!SystemDiagnostics.isCloudflareWARPActive(interfaces: interfaces))
+    }
+
+    @Test func warpInstalledDetectsCloudflareApps() {
+        #expect(SystemDiagnostics.isCloudflareWARPInstalled { path in
+            path == "/Applications/Cloudflare WARP.app"
+        })
+        #expect(SystemDiagnostics.isCloudflareWARPInstalled { path in
+            path == "/Applications/Cloudflare One.app"
+        })
+        #expect(!SystemDiagnostics.isCloudflareWARPInstalled { _ in false })
+    }
+
+    @Test func warpGuidanceMentionsQuitAndSplitTunnel() {
+        let lines = SystemDiagnostics.cloudflareWARPGuidance()
+        #expect(lines.count == 3)
+        #expect(lines.contains { $0.contains("Quit") && $0.contains("30 days") })
+        #expect(lines.contains { $0.contains("Split Tunnels") && $0.contains("*.ls.apple.com") })
+    }
+
+    @Test func locationSourceSummaryFlagsActiveWARP() {
+        let summary = SystemDiagnostics.locationSourceSummary(
+            authorization: .authorizedAlways,
+            locationServicesEnabled: true,
+            cachedGPSFixDescription: nil,
+            manualOverrideActive: false,
+            vpnInterfaces: ["utun0"],
+            mdmManaged: true,
+            cloudflareWARPActive: true
+        )
+        #expect(summary.contains("cloudflareWARP=active"))
+        #expect(summary.contains("WARP egress"))
+    }
 }

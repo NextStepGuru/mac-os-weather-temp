@@ -22,22 +22,42 @@ extension CLAuthorizationStatus {
 /// System-level facts that explain location behavior: VPN tunnels, MDM
 /// management, and a consolidated startup inventory of every location source.
 enum SystemDiagnostics {
+    struct InterfaceAddresses: Equatable {
+        let name: String
+        let ipv4Addresses: [String]
+    }
     /// Interface names present on the system (e.g. lo0, en0, utun3).
     static func networkInterfaceNames() -> [String] {
+        networkInterfaces().map(\.name)
+    }
+
+    /// Interfaces with their IPv4 addresses, from getifaddrs.
+    static func networkInterfaces() -> [InterfaceAddresses] {
         var interfaceList: UnsafeMutablePointer<ifaddrs>?
         guard getifaddrs(&interfaceList) == 0, let first = interfaceList else { return [] }
         defer { freeifaddrs(interfaceList) }
 
-        var names: [String] = []
+        var byName: [String: [String]] = [:]
         var cursor: UnsafeMutablePointer<ifaddrs>? = first
         while let current = cursor {
             let name = String(cString: current.pointee.ifa_name)
-            if !names.contains(name) {
-                names.append(name)
+            if let sockaddr = current.pointee.ifa_addr, sockaddr.pointee.sa_family == UInt8(AF_INET) {
+                let address = sockaddr.withMemoryRebound(to: sockaddr_in.self, capacity: 1) { sockaddrIn in
+                    var addr = sockaddrIn.pointee.sin_addr
+                    var buffer = [CChar](repeating: 0, count: Int(INET_ADDRSTRLEN))
+                    return inet_ntop(AF_INET, &addr, &buffer, socklen_t(INET_ADDRSTRLEN)) != nil
+                        ? String(cString: buffer)
+                        : nil
+                }
+                if let address {
+                    byName[name, default: []].append(address)
+                }
             }
             cursor = current.pointee.ifa_next
         }
-        return names.sorted()
+        return byName
+            .map { InterfaceAddresses(name: $0.key, ipv4Addresses: $0.value.sorted()) }
+            .sorted { $0.name < $1.name }
     }
 
     /// Tunnel interfaces that usually carry VPN traffic. Note: some system
@@ -61,6 +81,49 @@ enum SystemDiagnostics {
         fileExists("/Library/Managed Preferences")
     }
 
+    /// True when an IPv4 string sits inside the CGNAT range 100.64.0.0/10 that
+    /// Cloudflare WARP assigns to its tunnel interface.
+    static func isCGNATAddress(_ ipv4: String) -> Bool {
+        let parts = ipv4.split(separator: ".").compactMap { UInt32($0) }
+        guard parts.count == 4 else { return false }
+        let value = (parts[0] << 24) | (parts[1] << 16) | (parts[2] << 8) | parts[3]
+        return (value & 0xFFC0_0000) == 0x6440_0000
+    }
+
+    static func isCloudflareWARPInstalled(
+        fileExists: (String) -> Bool = { FileManager.default.fileExists(atPath: $0) }
+    ) -> Bool {
+        fileExists("/Applications/Cloudflare WARP.app") || fileExists("/Applications/Cloudflare One.app")
+    }
+
+    /// WARP's tunnel interface is a utun carrying a CGNAT address. Installed-but-
+    /// disconnected WARP is harmless for location, so only the active tunnel counts.
+    static func isCloudflareWARPActive(interfaces: [InterfaceAddresses]) -> Bool {
+        interfaces.contains { interface in
+            interface.name.hasPrefix("utun") && interface.ipv4Addresses.contains(where: isCGNATAddress)
+        }
+    }
+
+    static func isCloudflareWARPActive() -> Bool {
+        isCloudflareWARPActive(interfaces: networkInterfaces())
+    }
+
+    /// Remediation guidance when WARP is breaking Wi-Fi positioning and skewing
+    /// IP geolocation toward the WARP egress city.
+    static func cloudflareWARPGuidance() -> [String] {
+        [
+            "Cloudflare WARP (Zero Trust) tunnel is ACTIVE: WARP routes traffic through Cloudflare, so IP "
+                + "geolocation resolves to the WARP egress city — never your actual town — and WARP's tunnel "
+                + "is a known cause of macOS Wi-Fi positioning failures (location requests can fail through "
+                + "the tunnel even though small requests succeed).",
+            "Fix (takes a minute): quit WARP (menu-bar WARP icon → gear → Quit), then WeatherBar → Refresh now. "
+                + "The GPS fix is cached for 30 days and WeatherBar keeps working correctly after WARP is "
+                + "re-enabled.",
+            "Fix (permanent, needs your Zero Trust admin): exclude Apple's location endpoints from the tunnel "
+                + "in Settings → WARP Client → Split Tunnels → Exclude: *.ls.apple.com (and gsp-ssl.ls.apple.com)."
+        ]
+    }
+
     /// One-line inventory of every location source, logged at startup and
     /// whenever the location path changes so the log always answers
     /// "where did this location come from, and why that one?".
@@ -70,7 +133,8 @@ enum SystemDiagnostics {
         cachedGPSFixDescription: String?,
         manualOverrideActive: Bool,
         vpnInterfaces: [String],
-        mdmManaged: Bool
+        mdmManaged: Bool,
+        cloudflareWARPActive: Bool = false
     ) -> String {
         var parts: [String] = [
             "authorization=\(authorization.diagnosticsName)",
@@ -80,6 +144,9 @@ enum SystemDiagnostics {
         ]
         if !vpnInterfaces.isEmpty {
             parts.append("vpnTunnels=[\(vpnInterfaces.joined(separator: ", "))] (IP geolocation will resolve to the tunnel's exit city)")
+        }
+        if cloudflareWARPActive {
+            parts.append("cloudflareWARP=active (IP geolocation resolves to the WARP egress; Wi-Fi positioning may fail through the tunnel)")
         }
         if mdmManaged {
             parts.append("mdmManaged=true (corporate policy may suppress the location permission prompt)")

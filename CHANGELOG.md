@@ -53,6 +53,12 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Cloudflare Zero Trust (WARP) detection: an active WARP tunnel (utun with a
+  `100.64.0.0/10` address) is now flagged in the location-source summary and at
+  GPS-timeout, with concrete remediation — quit WARP and Refresh to cache a
+  30-day GPS fix, or exclude Apple's location endpoints
+  (`*.ls.apple.com`) via Zero Trust split tunnels. WARP skews IP geolocation
+  to the egress city and can silently break macOS Wi-Fi positioning.
 - Log viewer gained **Copy All**, **Save As…**, and **Refresh** buttons so
   logs can be captured and shared for diagnosis.
 - Wi-Fi positioning diagnostics: when CoreLocation produces no fix, the log now
