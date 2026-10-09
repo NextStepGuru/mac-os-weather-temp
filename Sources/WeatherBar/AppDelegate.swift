@@ -74,7 +74,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 cachedGPSFixDescription: cachedFix,
                 manualOverrideActive: isManualOverride,
                 vpnInterfaces: SystemDiagnostics.vpnInterfacesPresent(),
-                mdmManaged: SystemDiagnostics.isMDMManaged()
+                mdmManaged: SystemDiagnostics.isMDMManaged(),
+                cloudflareWARPActive: SystemDiagnostics.isCloudflareWARPActive()
             ) + " (\(context))"
         )
     }
@@ -311,6 +312,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             )
             for line in WiFiDiagnostics.guidance(for: state, appleLocationReachable: reachable) {
                 AppLogger.shared.log(line, level: .warning)
+            }
+            if SystemDiagnostics.isCloudflareWARPActive() {
+                for line in SystemDiagnostics.cloudflareWARPGuidance() {
+                    AppLogger.shared.log(line, level: .warning)
+                }
             }
         }
     }
@@ -814,13 +820,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         isAttemptingIPFallback = true
 
         let vpnInterfaces = SystemDiagnostics.vpnInterfacesPresent()
+        let warpActive = SystemDiagnostics.isCloudflareWARPActive()
         var contextLog = "No GPS source available (authorization: \(locationProvider.currentAuthorizationStatus.diagnosticsName), "
             + "cached GPS fix: \(lastGPSLocation == nil ? "none" : "present")) — falling back to IP geolocation (\(reason))"
-        if !vpnInterfaces.isEmpty {
+        if warpActive {
+            contextLog += ". Cloudflare WARP tunnel is active: IP geolocation resolves to the WARP egress city, "
+                + "not your actual location — quit WARP and Refresh to cache a real GPS fix for 30 days"
+        } else if !vpnInterfaces.isEmpty {
             contextLog += ". VPN tunnels active (\(vpnInterfaces.joined(separator: ", "))): IP geolocation "
                 + "resolves to the VPN's exit city, not your actual location"
         }
-        AppLogger.shared.log(contextLog, level: vpnInterfaces.isEmpty ? .info : .warning)
+        AppLogger.shared.log(contextLog, level: (warpActive || !vpnInterfaces.isEmpty) ? .warning : .info)
 
         Task {
             defer { self.isAttemptingIPFallback = false }

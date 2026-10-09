@@ -144,6 +144,19 @@ IP geolocation resolves to your network's **exit point**, so on a corporate VPN 
 
 The log states the active VPN tunnels, MDM management, and which location source produced the current location — open **View Logs → Copy All** to capture it.
 
+### Cloudflare Zero Trust (WARP)
+
+WeatherBar detects an active Cloudflare WARP tunnel (a `utun` interface with a `100.64.0.0/10` address) and calls it out in the log, because WARP breaks location two ways:
+
+1. **IP geolocation resolves to the WARP egress** — a Cloudflare point-of-presence that IP databases often place in the wrong city entirely, so the `Approx (IP)` fallback can be hundreds of miles off.
+2. **Wi-Fi positioning can silently fail through the tunnel** — macOS `locationd`'s requests to Apple can die inside WARP's 1280-MTU tunnel even though ordinary browsing works, leaving WeatherBar with no GPS fix at all.
+
+Remedies, easiest first:
+
+- **Quit WARP once, then Refresh**: WARP menu-bar icon → gear → Quit, then WeatherBar → **Refresh now**. The GPS fix is cached for 30 days, so WeatherBar stays correct after WARP is re-enabled.
+- **Split-tunnel Apple's location endpoints** (needs your Zero Trust admin): Settings → WARP Client → Split Tunnels → Exclude `*.ls.apple.com` and `gsp-ssl.ls.apple.com`.
+- **Set a manual location** in **Settings…** — unaffected by any tunnel.
+
 ### Resetting Location Services permission
 
 If WeatherBar shows the wrong city or stays on `Approx (IP)` after granting permission, reset the app's location grant and reinstall:
