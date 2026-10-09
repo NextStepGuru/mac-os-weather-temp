@@ -127,11 +127,22 @@ flowchart TD
     useIP -.->|GPS fix arrives| useGPS
 ```
 
-**Priority:** Manual override > GPS (CoreLocation) > IP fallback (timed)
+**Priority:** Manual override > GPS (CoreLocation) > last known GPS (cached, up to 7 days) > IP fallback (timed)
 
-- **GPS** — most accurate; used when Location Services are allowed. The app waits up to **12 seconds** for a first fix before falling back to IP.
+- **GPS** — most accurate; used when Location Services are allowed. The app waits up to **12 seconds** for a first fix before falling back. The most recent fix is cached so later launches without GPS (e.g. VPN blocking Wi-Fi positioning) still use a real location, labeled `Last known`.
 - **Manual** — set any place in **Settings…**; GPS updates are ignored while active.
-- **IP fallback** — city-level approximation via [ipapi.co](https://ipapi.co/); only used when GPS is denied or no fix arrives within the grace period. Marked `Approx (IP)` in the dropdown. Any later GPS fix replaces the IP estimate.
+- **IP fallback** — city-level approximation via [ipapi.co](https://ipapi.co/); only used when GPS is denied/unavailable and no cached fix exists. Marked `Approx (IP)` in the dropdown. Any later GPS fix replaces the IP estimate.
+- If the location permission prompt is never answered, a 30-second watchdog logs diagnostics, re-requests, and falls back — the app never hangs at "Locating…".
+
+### Wrong city on a corporate VPN
+
+IP geolocation resolves to your network's **exit point**, so on a corporate VPN it reports the VPN egress city (very often San Francisco) — not where you are. The fix is real positioning, which works fine through a VPN:
+
+1. Use **WeatherBar menu → Allow Location Access…** to open System Settings directly, and enable WeatherBar under **Privacy & Security → Location Services**. On MDM-managed Macs the permission prompt is often suppressed, so this direct path is the reliable one.
+2. Once granted, Wi-Fi positioning supplies your actual location and replaces the IP estimate automatically.
+3. Alternatively set your city once in **Settings…** (manual override).
+
+The log states the active VPN tunnels, MDM management, and which location source produced the current location — open **View Logs → Copy All** to capture it.
 
 ### Resetting Location Services permission
 

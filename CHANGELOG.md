@@ -48,6 +48,13 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 - Log viewer gained **Copy All**, **Save As…**, and **Refresh** buttons so
   logs can be captured and shared for diagnosis.
+- **Allow Location Access…** menu item that opens System Settings directly to
+  Privacy & Security → Location Services — the reliable grant path when the
+  permission prompt never appears (common on MDM-managed corporate Macs).
+- Location-source diagnostics: startup inventory of every location source
+  (authorization, Location Services, cached GPS fix, manual override), active
+  VPN tunnel detection, and MDM-management detection, plus an explicit log of
+  why IP geolocation was chosen and what its VPN-egress limitations are.
 
 ## [0.1.0] - 2026-03-23
 
