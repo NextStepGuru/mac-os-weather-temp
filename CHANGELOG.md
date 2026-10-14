@@ -53,6 +53,17 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- Clicking the menu bar item now opens a dashboard panel: a full current-month
+  calendar (Sunday-first, ISO "CW" week numbers, month navigation, today badge,
+  collapsible) plus an editable timezone clock list defaulting to the four US
+  zones (Eastern, Central, Mountain, Pacific). Add zones from a curated list or
+  by searching every IANA identifier, remove with the row's "–" button, or
+  reset to US defaults; choices persist across launches.
+- The menu bar title now includes the current local date and time next to the
+  temperature, e.g. `14°C / 57°F · Wed, Oct 14 11:05 AM`, updating every 30s.
+- The classic menu (refresh, logs, updates, settings, open-at-login, quit) is
+  still available via the panel's ••• button or a right-click on the menu bar
+  item.
 - Cloudflare Zero Trust (WARP) detection: an active WARP tunnel (utun with a
   `100.64.0.0/10` address) is now flagged in the location-source summary and at
   GPS-timeout, with concrete remediation — quit WARP and Refresh to cache a
