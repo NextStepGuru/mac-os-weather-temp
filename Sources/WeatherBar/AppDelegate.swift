@@ -2,8 +2,9 @@ import AppKit
 import CoreLocation
 
 @MainActor
-final class AppDelegate: NSObject, NSApplicationDelegate {
+final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+    private let popover = NSPopover()
     private let locationProvider = LocationProvider()
     private let weatherService = WeatherService()
     private let geocodingService = GeocodingService()
@@ -29,6 +30,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
     private var isFetching = false
     private var isGeocoding = false
     private var loginItemError: String?
+    private var moreMenu: NSMenu?
+    private var panelViewController: PanelViewController?
+    private var clockTimer: Timer?
     private var isManualOverride = false
     private var lastGPSLocation: CLLocation?
     private var currentAuthStatus: CLAuthorizationStatus = .notDetermined
@@ -60,6 +64,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         }
         startUpdateTimer()
         scheduleInitialUpdateCheck()
+        startClockTimer()
+        updateMenuBarTitle()
         logLocationSourceSummary("startup")
     }
 
@@ -86,12 +92,17 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         locationProvider.start()
     }
 
+    func popoverDidShow(_ notification: Notification) {
+        panelViewController?.refresh()
+    }
+
     func applicationWillTerminate(_ notification: Notification) {
         AppLogger.shared.log("WeatherBar terminating")
         gpsGraceTimer?.invalidate()
         permissionWatchdogTimer?.invalidate()
         refreshTimer?.invalidate()
         updateTimer?.invalidate()
+        clockTimer?.invalidate()
         locationProvider.stop()
     }
 
@@ -181,7 +192,54 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
         quitItem.target = self
         menu.addItem(quitItem)
 
-        self.statusItem.menu = menu
+        // The menu is no longer attached to the status item: a left click opens
+        // the calendar/timezone panel, a right click opens this menu (also
+        // reachable via the panel's ••• button).
+        self.moreMenu = menu
+        statusItem.button?.action = #selector(statusItemClicked)
+        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+    }
+
+    @objc private func statusItemClicked() {
+        guard let button = statusItem.button else { return }
+
+        if let event = NSApp.currentEvent, event.type == .rightMouseUp || event.type == .otherMouseUp {
+            moreMenu?.popUp(positioning: nil, at: NSPoint(x: 0, y: button.bounds.maxY), in: button)
+            return
+        }
+
+        if popover.isShown {
+            popover.performClose(nil)
+            return
+        }
+
+        if panelViewController == nil {
+            let controller = PanelViewController(
+                moreMenu: moreMenu ?? NSMenu(),
+                statusLineProvider: { [weak self] in self?.statusMenuItem?.title }
+            )
+            panelViewController = controller
+            popover.contentViewController = controller
+        }
+        popover.behavior = .transient
+        popover.delegate = self
+        NSApp.activate(ignoringOtherApps: true)
+        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+    }
+
+    private func startClockTimer() {
+        clockTimer = Timer.scheduledTimer(withTimeInterval: 30, repeats: true) { [weak self] _ in
+            Task { @MainActor in
+                self?.updateMenuBarTitle()
+            }
+        }
+    }
+
+    /// Menu bar shows the temperature plus the current local date/time, e.g.
+    /// `14°C / 57°F · Wed, Oct 14 11:05 AM`.
+    private func updateMenuBarTitle() {
+        let temperature = lastTemperatureText ?? "--°"
+        statusItem.button?.title = "\(temperature) · \(MenuBarClock.text(for: Date()))"
     }
 
     private func setupLocationProvider() {
@@ -852,7 +910,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
             } catch {
                 AppLogger.shared.log("IP fallback failed: \(NetworkDiagnostics.describe(error))", level: .error)
                 if self.lastLocation == nil {
-                    self.statusItem.button?.title = "!°"
+                    self.lastTemperatureText = "!°"
+                    self.updateMenuBarTitle()
                     self.statusMenuItem?.title = deniedMessage
                 }
             }
@@ -903,15 +962,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate {
                 let formatted = WeatherService.formatTemperature(celsius: celsius)
                 self.lastTemperatureText = formatted
                 AppLogger.shared.log("Weather fetch success: \(formatted)")
-                self.statusItem.button?.title = formatted
+                self.updateMenuBarTitle()
                 self.updateStatusMenu()
             } catch {
                 self.isFetching = false
                 self.lastFetchFailed = true
                 AppLogger.shared.log("Weather fetch failed: \(error.localizedDescription)", level: .error)
                 if let title = WeatherDisplayPolicy.menuBarTitleOnFetchFailure(lastTemperatureText: self.lastTemperatureText) {
-                    self.statusItem.button?.title = title
+                    self.lastTemperatureText = title
                 }
+                self.updateMenuBarTitle()
                 self.updateStatusMenu()
             }
         }

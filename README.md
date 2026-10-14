@@ -19,7 +19,8 @@ A lightweight macOS menu bar app that shows the current temperature in Celsius a
 
 ## Features
 
-- **Menu bar temperature** — dual Celsius/Fahrenheit display (e.g. `25°C / 77°F`)
+- **Menu bar temperature + clock** — dual Celsius/Fahrenheit plus the current local date/time (e.g. `25°C / 77°F · Wed, Oct 14 11:05 AM`)
+- **Dashboard panel** — clicking the menu bar item opens a full current-month calendar (week numbers, month navigation, today badge) and an editable list of timezone clocks (defaults: Eastern, Central, Mountain, Pacific — add/remove freely)
 - **Location dropdown** — city/state, local time with timezone, and last-updated timestamp
 - **GPS tracking** — CoreLocation with ~3 km distance filter; re-fetches when you move
 - **Manual location** — override with any place name via **Settings…** (persisted across launches)
